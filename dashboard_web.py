@@ -21,57 +21,70 @@ BASE = Path(__file__).parent
 
 _CSS = """
 :root {
-  --bg:       #0a0a0c;
-  --sb:       #0f0f12;
-  --card:     #16161a;
-  --card2:    #1c1c22;
-  --border:   #252530;
-  --bl:       #1e1e26;
-  --text:     #f0f0f2;
-  --mid:      #9999a8;
-  --muted:    #5a5a68;
-  --green:    #22c55e;
-  --red:      #ef4444;
-  --gold:     #f59e0b;
-  --blue:     #3b82f6;
-  --purple:   #8b5cf6;
+  --bg:       #131722;
+  --bg2:      #1e222d;
+  --bg3:      #2a2e39;
+  --border:   #363a45;
+  --text:     #d1d4dc;
+  --mid:      #787b86;
+  --muted:    #4c525e;
   --teal:     #2dd4bf;
-  --orange:   #f97316;
-  --accent:   #4ade80;
+  --blue:     #2962ff;
+  --green:    #26a69a;
+  --red:      #ef5350;
+  --gold:     #f0b429;
+  --purple:   #9c27b0;
+  --card:     #1e222d;
+  /* legacy aliases */
+  --sb:       #1e222d;
+  --card2:    #2a2e39;
+  --bl:       #2a2e39;
+  --orange:   #ff6b35;
+  --accent:   #2dd4bf;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;overflow:hidden}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
 
 /* ── Layout ── */
-.layout{display:flex;height:100vh}
+.layout{display:flex;height:100vh;overflow:hidden}
 
 /* ── Sidebar ── */
-.sb{width:64px;background:var(--sb);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;flex-shrink:0;z-index:100}
-.sb-logo{width:38px;height:38px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:12px;flex-shrink:0}
-.sb-link{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;transition:.15s;text-decoration:none;color:var(--muted);position:relative}
-.sb-link:hover{background:var(--card);color:var(--mid)}
-.sb-link.active{background:var(--card2);color:var(--text)}
-.sb-link .tip{position:absolute;left:54px;background:#1e1e26;border:1px solid var(--border);padding:4px 10px;border-radius:6px;font-size:11px;white-space:nowrap;opacity:0;pointer-events:none;transition:.15s;color:var(--text)}
-.sb-link:hover .tip{opacity:1}
+.sb{width:220px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;z-index:50;overflow-y:auto}
+.sb-logo{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sb-logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--teal),#16a34a);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.sb-logo-text{font-size:14px;font-weight:700;color:var(--teal)}
+.sb-link{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--mid);text-decoration:none;font-size:13px;transition:.15s;border-left:3px solid transparent}
+.sb-link:hover{background:rgba(255,255,255,0.05);color:var(--text)}
+.sb-link.active{background:var(--bg3);color:var(--text);border-left-color:var(--teal)}
+.sb-icon{font-size:18px;width:22px;text-align:center;flex-shrink:0}
+.sb-label{font-size:13px}
+.tip{display:none}
 .sb-spacer{flex:1}
-.sb-bot{display:flex;flex-direction:column;align-items:center;gap:4px}
+.sb-bot{border-top:1px solid var(--border);padding:8px 0}
+@media(max-width:700px){.sb{width:64px}.sb-label{display:none}.sb-logo-text{display:none}}
 
 /* ── Main ── */
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 
 /* ── Topbar ── */
-.topbar{height:52px;background:var(--sb);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
-.topbar-title{font-size:15px;font-weight:700;color:var(--text)}
+.topbar{height:48px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0}
+.topbar-title{font-size:14px;font-weight:600;color:var(--text)}
 .topbar-sub{font-size:12px;color:var(--muted)}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px}
-.top-pill{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;color:var(--mid)}
-.top-user{font-size:12px;color:var(--muted);cursor:pointer}
+.topbar-search{flex:1;max-width:280px;position:relative}
+.topbar-search input{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px 6px 32px;font-size:13px;width:100%;outline:none;transition:.15s}
+.topbar-search input:focus{border-color:var(--teal)}
+.topbar-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.mkt-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:2px;vertical-align:middle}
+.mkt-open{background:#26a69a}.mkt-closed{background:#ef5350}
+.top-pill{background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--mid)}
+.top-user{font-size:12px;color:var(--mid);cursor:pointer}
 .top-user:hover{color:var(--text)}
 
 /* ── Tabs ── */
-.tabs{display:flex;gap:2px;padding:0 20px;background:var(--sb);border-bottom:1px solid var(--border);flex-shrink:0}
-.tab{padding:10px 16px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;white-space:nowrap}
-.tab:hover{color:var(--mid)}
+.tabs{display:flex;gap:2px;padding:0 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{padding:10px 14px;font-size:12px;font-weight:600;color:var(--mid);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;white-space:nowrap;text-decoration:none;display:inline-block}
+.tab:hover{color:var(--text)}
 .tab.active{color:var(--text);border-bottom-color:var(--teal)}
 
 /* ── Content ── */
@@ -81,31 +94,35 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
 .content::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── Cards ── */
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
-.card-sm{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px}
-.card-hdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:12px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card-sm{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px}
+.card-hdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--mid);margin-bottom:12px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:flex;flex-direction:column}
+.stat-label{font-size:11px;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.stat-value{font-size:24px;font-weight:600;color:var(--text)}
+.stat-sub{font-size:12px;color:var(--mid);margin-top:4px}
 
 /* ── Grid ── */
 .g2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.g-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.g-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 @media(max-width:900px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:600px){.g4,.g3,.g2{grid-template-columns:1fr}.layout{flex-direction:column}.sb{width:100%;height:56px;flex-direction:row;padding:0 12px;overflow-x:auto}.sb-logo{margin-bottom:0;margin-right:8px}.sb-spacer,.sb-bot{display:none}}
+@media(max-width:600px){.g4,.g3,.g2{grid-template-columns:1fr}}
 
 /* ── Stat blocks ── */
 .stat-val{font-size:22px;font-weight:800;line-height:1}
-.stat-lbl{font-size:11px;color:var(--muted);margin-top:4px}
+.stat-lbl{font-size:11px;color:var(--mid);margin-top:4px}
 .pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--mid)}
 .gold-c{color:var(--gold)}.blue-c{color:var(--blue)}.teal-c{color:var(--teal)}
 
 /* ── Badges ── */
-.badge{display:inline-flex;align-items:center;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px}
-.badge-buy{background:#22c55e22;color:#22c55e;border:1px solid #22c55e44}
-.badge-sell,.badge-avoid{background:#ef444422;color:#ef4444;border:1px solid #ef444444}
-.badge-watch{background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44}
-.badge-wait,.badge-neutral{background:#6b6b7822;color:#9999a8;border:1px solid #6b6b7844}
-.badge-dca{background:#2dd4bf22;color:#2dd4bf;border:1px solid #2dd4bf44}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-buy{background:rgba(38,166,154,0.2);color:var(--green);border:1px solid rgba(38,166,154,0.4)}
+.badge-sell,.badge-avoid{background:rgba(239,83,80,0.2);color:var(--red);border:1px solid rgba(239,83,80,0.4)}
+.badge-watch{background:rgba(240,180,41,0.2);color:var(--gold);border:1px solid rgba(240,180,41,0.4)}
+.badge-wait,.badge-neutral{background:rgba(120,123,134,0.2);color:var(--mid);border:1px solid rgba(120,123,134,0.4)}
+.badge-dca{background:rgba(45,212,191,0.2);color:var(--teal);border:1px solid rgba(45,212,191,0.4)}
 
 /* ── Progress bar ── */
 .pbar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:6px}
@@ -113,15 +130,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
 
 /* ── Table ── */
 .tbl{width:100%;border-collapse:collapse}
-.tbl th{text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:0 8px 10px;white-space:nowrap}
-.tbl td{padding:10px 8px;border-top:1px solid var(--bl);font-size:13px;vertical-align:middle}
-.tbl tr:hover td{background:var(--card2)}
+.tbl th{background:var(--bg3);color:var(--mid);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 12px;text-align:left;white-space:nowrap;font-weight:700}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--bg3);font-size:13px;vertical-align:middle}
+.tbl tr:hover td{background:rgba(255,255,255,0.03)}
 .tbl .sym{font-weight:700;font-size:14px}
 
 /* ── Signal chip ── */
 .sig{display:inline-flex;gap:4px;align-items:center;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px}
-.sig-BUY{background:#22c55e18;color:#22c55e}.sig-WATCH{background:#f59e0b18;color:#f59e0b}
-.sig-WAIT,.sig-NEUTRAL{background:#6b6b7818;color:#9999a8}.sig-AVOID{background:#ef444418;color:#ef4444}
+.sig-BUY{background:rgba(38,166,154,0.15);color:var(--green)}
+.sig-WATCH{background:rgba(240,180,41,0.15);color:var(--gold)}
+.sig-WAIT,.sig-NEUTRAL{background:rgba(120,123,134,0.15);color:var(--mid)}
+.sig-AVOID{background:rgba(239,83,80,0.15);color:var(--red)}
 
 /* ── RSI bar ── */
 .rsi-wrap{width:80px}
@@ -131,22 +150,28 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
 /* ── Sparkline ── */
 canvas.spark{width:80px;height:32px;display:block}
 
-/* ── Price ticker ── */
-.ticker-wrap{overflow:hidden;background:var(--sb);border-bottom:1px solid var(--border);height:32px;flex-shrink:0}
+/* ── Ticker ── */
+.ticker-wrap{overflow:hidden;background:var(--bg2);border-bottom:1px solid var(--border);height:32px;flex-shrink:0}
 .ticker-inner{display:flex;align-items:center;height:32px;animation:tick 40s linear infinite;width:max-content}
 .ticker-inner:hover{animation-play-state:paused}
-.ticker-item{display:inline-flex;align-items:center;gap:6px;padding:0 20px;font-size:11px;font-weight:600;white-space:nowrap;border-right:1px solid var(--bl)}
+.ticker-item{display:inline-flex;align-items:center;gap:6px;padding:0 20px;font-size:11px;font-weight:600;white-space:nowrap;border-right:1px solid var(--border)}
 .ticker-sym{color:var(--mid)}.ticker-px{color:var(--text)}.ticker-chg.up{color:var(--green)}.ticker-chg.dn{color:var(--red)}
 @keyframes tick{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
 /* ── Buttons ── */
-.btn{padding:8px 18px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px}
+.btn{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:.15s;font-family:inherit}
 .btn-primary{background:var(--teal);color:#000}.btn-primary:hover{filter:brightness(1.1)}
-.btn-ghost{background:var(--card);border:1px solid var(--border);color:var(--mid)}.btn-ghost:hover{border-color:var(--mid);color:var(--text)}
-.btn-sm{padding:5px 12px;font-size:11px;border-radius:6px}
+.btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:rgba(239,83,80,0.15);color:var(--red);border:1px solid rgba(239,83,80,0.3)}
+.btn-ghost{background:var(--bg3);border:1px solid var(--border);color:var(--mid)}.btn-ghost:hover{border-color:var(--mid);color:var(--text)}
+.btn-sm{padding:4px 10px;font-size:11px;border-radius:4px}
 
-/* ── Refresh indicator ── */
-.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+/* ── Input / Select ── */
+input,select,textarea{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 11px;font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal)}
+
+/* ── Live dot ── */
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;display:inline-block}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
 /* ── Loading ── */
@@ -154,7 +179,7 @@ canvas.spark{width:80px;height:32px;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ── Chat ── */
-.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 52px - 32px);overflow:hidden}
+.chat-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden}
 .chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
 .chat-messages::-webkit-scrollbar{width:5px}
 .chat-messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -162,22 +187,34 @@ canvas.spark{width:80px;height:32px;display:block}
 .msg-row.user{align-self:flex-end;flex-direction:row-reverse}
 .msg-row.ai{align-self:flex-start}
 .msg-avatar{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-.msg-avatar.user-av{background:var(--card2);border:1px solid var(--border)}
-.msg-avatar.ai-av{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.msg-avatar.user-av{background:var(--bg3);border:1px solid var(--border)}
+.msg-avatar.ai-av{background:linear-gradient(135deg,var(--teal),#16a34a)}
 .bubble{padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.6;max-width:100%;word-wrap:break-word;white-space:pre-wrap}
 .bubble.user{background:var(--teal);color:#000;border-bottom-right-radius:4px}
-.bubble.ai{background:var(--card);border:1px solid var(--border);color:var(--text);border-bottom-left-radius:4px}
+.bubble.ai{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-bottom-left-radius:4px}
 .bubble.typing{color:var(--muted)}
-.chat-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;background:var(--sb)}
-.chat-input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:none;outline:none;max-height:120px;min-height:42px;transition:border .15s}
+.chat-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;background:var(--bg2)}
+.chat-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:none;outline:none;max-height:120px;min-height:42px;transition:border .15s}
 .chat-input:focus{border-color:var(--teal)}
 .chat-input::placeholder{color:var(--muted)}
 .chat-send{width:42px;height:42px;border-radius:10px;background:var(--teal);border:none;cursor:pointer;font-size:18px;flex-shrink:0;transition:.15s;display:flex;align-items:center;justify-content:center}
 .chat-send:hover{filter:brightness(1.1)}
 .chat-send:disabled{opacity:.4;cursor:not-allowed}
-.chat-toolbar{display:flex;gap:6px;padding:6px 16px;background:var(--sb);border-bottom:1px solid var(--border)}
-.chip{font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.1s;white-space:nowrap}
+.chat-toolbar{display:flex;gap:6px;padding:6px 16px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.chip{font-size:11px;padding:4px 10px;border-radius:20px;background:var(--bg3);border:1px solid var(--border);color:var(--mid);cursor:pointer;transition:.1s;white-space:nowrap}
 .chip:hover{border-color:var(--teal);color:var(--teal)}
+
+/* ── Chart toolbar (TV-style) ── */
+.chart-toolbar{display:flex;align-items:center;gap:6px;padding:10px 0;flex-wrap:wrap}
+.tf-btn,.ind-btn{background:var(--bg3);color:var(--mid);border:1px solid var(--border);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;transition:.15s;font-family:inherit}
+.tf-btn.active,.ind-btn.active{background:var(--teal);color:#000;border-color:var(--teal)}
+.tf-btn:hover,.ind-btn:hover{border-color:var(--teal);color:var(--teal)}
+.tf-btn.active:hover,.ind-btn.active:hover{color:#000}
+.tf-sep{width:1px;height:20px;background:var(--border);margin:0 4px;display:inline-block}
+.ohlcv-bar{display:flex;align-items:center;gap:14px;padding:6px 0;font-size:13px;flex-wrap:wrap;min-height:36px}
+.sym-label{font-size:16px;font-weight:700;color:var(--text)}
+.chart-panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden}
+.chart-panel-label{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--bg3)}
 """
 
 # ─── Base Layout ──────────────────────────────────────────────────────────────
@@ -188,25 +225,26 @@ def _base(page_id: str, title: str, content: str, user: dict,
     is_admin = user.get("role") == "admin"
     nav = [
         ("stocks",   "📊", "Stocks"),
+        ("charts",   "📉", "Charts"),
         ("gold",     "🥇", "Gold"),
         ("crypto",   "₿",  "Crypto"),
         ("dca",      "📈", "DCA"),
         ("signals",  "🎯", "Signals"),
         ("news",     "📰", "News"),
-        ("paper",    "🧪", "Paper Trade"),
-        ("ai",       "🤖", "AI Analysis"),
+        ("paper",    "🧪", "Paper"),
+        ("ai",       "🤖", "AI"),
         ("screener", "🔭", "Screener"),
-        ("charts",   "📉", "Charts"),
+        ("chat",     "💬", "Chat"),
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
-        ("options",  "⚙", "Options"),
-        ("chat",     "💬", "Chat ArtheeNoi"),
+        ("options",  "⚙",  "Options"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
         act = "active" if nid == page_id else ""
         nav_html += (f'<a class="sb-link {act}" href="/{nid}">'
-                     f'{icon}<span class="tip">{label}</span></a>')
+                     f'<span class="sb-icon">{icon}</span>'
+                     f'<span class="sb-label">{label}</span></a>\n')
 
     return f"""<!DOCTYPE html>
 <html lang="th">
@@ -220,24 +258,31 @@ def _base(page_id: str, title: str, content: str, user: dict,
 <div class="layout">
   <!-- Sidebar -->
   <nav class="sb">
-    <div class="sb-logo">A</div>
+    <div class="sb-logo">
+      <div class="sb-logo-icon">📊</div>
+      <span class="sb-logo-text">ArtheeNoi</span>
+    </div>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings">⚙️<span class="tip">Settings</span></a>
-      {'<a class="sb-link" href="/admin">👑<span class="tip">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout">🚪<span class="tip">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-icon">⚙️</span><span class="sb-label">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-icon">👑</span><span class="sb-label">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-icon">🚪</span><span class="sb-label">Logout</span></a>
     </div>
   </nav>
   <!-- Main -->
   <div class="main">
     <!-- Topbar -->
     <div class="topbar">
-      <div>
-        <div class="topbar-title">{title}</div>
+      <div class="topbar-search">
+        <span class="topbar-search-icon">🔍</span>
+        <input type="text" placeholder="Symbol search... (Enter)" id="symSearch"
+          onkeydown="if(event.key==='Enter'){{var s=this.value.trim().toUpperCase();if(s)location.href='/chart/'+s;}}">
       </div>
       <div class="topbar-right">
-        <span class="live-dot" id="liveDot" title="Live"></span>
+        <span id="mktDot" class="mkt-dot mkt-closed"></span>
+        <span id="mktLabel" style="font-size:11px;color:var(--mid)">Market</span>
+        <span class="top-pill" id="thbRate">🇹🇭 ฿—</span>
         <span class="top-pill" id="mktTime">--:--</span>
         <span class="top-user" onclick="location.href='/settings'">👤 {display}</span>
       </div>
@@ -257,6 +302,22 @@ function updateClock(){{
   document.getElementById('mktTime').textContent=now.toLocaleTimeString('th-TH',{{hour:'2-digit',minute:'2-digit'}});
 }}
 setInterval(updateClock,1000); updateClock();
+// Market status
+(function(){{
+  const now=new Date();
+  const est=new Date(now.toLocaleString('en-US',{{timeZone:'America/New_York'}}));
+  const h=est.getHours(),m=est.getMinutes(),d=est.getDay();
+  const open=d>=1&&d<=5&&(h>9||(h===9&&m>=30))&&h<16;
+  document.getElementById('mktDot').className='mkt-dot '+(open?'mkt-open':'mkt-closed');
+  document.getElementById('mktLabel').textContent=open?'Open':'Closed';
+}})();
+// Fetch THB rate
+(function(){{
+  fetch('/api/prices').then(r=>r.json()).then(d=>{{
+    const thb=d._thb||35.0;
+    document.getElementById('thbRate').textContent='🇹🇭 ฿'+thb.toFixed(1);
+  }}).catch(()=>{{}});
+}})();
 {extra_js}
 </script>
 </body></html>"""
@@ -527,6 +588,7 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
           <td class="{pc}">{ps}${r['pnl']:,.0f} <span style="font-size:10px;color:var(--muted)">({ps}{r['pnl_pct']:.1f}%)</span></td>
           <td class="{pc}" style="font-weight:700">{ps}฿{abs(r['pnl_thb']):,.0f}</td>
           <td><canvas id="{sp_id}" class="spark"></canvas></td>
+          <td><a href="/chart/{r['sym']}" class="btn btn-ghost btn-sm" title="View Chart">📉</a></td>
         </tr>"""
 
     spark_js = ""
@@ -569,6 +631,9 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
           <div class="pbar"><div class="pbar-fill" style="width:{pct_range:.0f}%;background:var(--teal)"></div></div>
           <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--muted)">
             <span>L ${d['low']:,.0f}</span><span>52W range</span><span>H ${d['high']:,.0f}</span>
+          </div>
+          <div style="margin-top:10px;text-align:right">
+            <a href="/chart/{sym}" class="btn btn-ghost btn-sm">📉 Chart</a>
           </div>
         </div>"""
 
@@ -614,7 +679,7 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
   <div style="overflow-x:auto">
     <table class="tbl">
       <thead><tr>
-        <th>Symbol</th><th>Price</th><th>Today</th><th>RSI</th><th>Position</th><th>P&L (USD)</th><th>P&L (THB)</th><th>30D</th>
+        <th>Symbol</th><th>Price</th><th>Today</th><th>RSI</th><th>Position</th><th>P&L (USD)</th><th>P&L (THB)</th><th>30D</th><th></th>
       </tr></thead>
       <tbody>{port_table or '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มี portfolio — ไป Settings เพื่อเพิ่ม</td></tr>'}</tbody>
     </table>
@@ -2233,33 +2298,37 @@ def _sidebar_html(user: dict, active: str) -> str:
     is_admin = user.get("role") == "admin"
     nav = [
         ("stocks",   "📊", "Stocks"),
+        ("charts",   "📉", "Charts"),
         ("gold",     "🥇", "Gold"),
         ("crypto",   "₿",  "Crypto"),
         ("dca",      "📈", "DCA"),
         ("signals",  "🎯", "Signals"),
         ("news",     "📰", "News"),
-        ("paper",    "🧪", "Paper Trade"),
-        ("ai",       "🤖", "AI Analysis"),
+        ("paper",    "🧪", "Paper"),
+        ("ai",       "🤖", "AI"),
         ("screener", "🔭", "Screener"),
-        ("charts",   "📉", "Charts"),
+        ("chat",     "💬", "Chat"),
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
-        ("options",  "⚙", "Options"),
-        ("chat",     "💬", "Chat ArtheeNoi"),
+        ("options",  "⚙",  "Options"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
         a = "active" if nid == active else ""
         nav_html += (f'<a class="sb-link {a}" href="/{nid}">'
-                     f'{icon}<span class="tip">{label}</span></a>')
+                     f'<span class="sb-icon">{icon}</span>'
+                     f'<span class="sb-label">{label}</span></a>\n')
     return f"""<nav class="sb">
-    <div class="sb-logo">A</div>
+    <div class="sb-logo">
+      <div class="sb-logo-icon">📊</div>
+      <span class="sb-logo-text">ArtheeNoi</span>
+    </div>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings">⚙️<span class="tip">Settings</span></a>
-      {'<a class="sb-link" href="/admin">👑<span class="tip">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout">🚪<span class="tip">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-icon">⚙️</span><span class="sb-label">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-icon">👑</span><span class="sb-label">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-icon">🚪</span><span class="sb-label">Logout</span></a>
     </div>
   </nav>"""
 
@@ -2282,249 +2351,352 @@ def _daily_returns(closes: list) -> list:
     return [round((closes[i]-closes[i-1])/closes[i-1]*100, 4)
             for i in range(1, len(closes))]
 
-def charts_page(user: dict, market_data: dict, thb: float) -> str:
+def charts_page(user: dict, market_data: dict, thb: float, sym: str | None = None) -> str:
     port = user.get("portfolio", {})
     watchlist = user.get("watchlist", [])
     all_syms  = list(port.keys()) + [s for s in watchlist if s not in port]
+    if not all_syms:
+        all_syms = ["NVDA", "MSFT", "GOOGL"]
 
-    # Stat cards
-    total_val = total_cost = 0
-    best_sym = best_chg = None
-    for sym, info in port.items():
-        d = market_data.get(sym, {})
-        if not d.get("price"): continue
-        val = d["price"] * float(info.get("shares",1))
-        ct  = float(info.get("cost",0)) * float(info.get("shares",1))
-        total_val  += val
-        total_cost += ct
-        chg = d.get("chg",0)
-        if best_chg is None or chg > best_chg:
-            best_chg = chg; best_sym = sym
-    total_pnl = total_val - total_cost
-    pnl_col = "pos" if total_pnl >= 0 else "neg"
-    pnl_sign = "+" if total_pnl >= 0 else ""
-
-    # Donut data
-    donut_labels = []; donut_vals = []; donut_colors = []
-    _palette = ["#2dd4bf","#3b82f6","#8b5cf6","#f59e0b","#22c55e","#f97316","#ef4444","#ec4899","#64748b","#0ea5e9"]
-    for i, (sym, info) in enumerate(port.items()):
-        d = market_data.get(sym, {})
-        if not d.get("price"): continue
-        donut_labels.append(sym)
-        donut_vals.append(round(d["price"] * float(info.get("shares",1)),2))
-        donut_colors.append(_palette[i % len(_palette)])
-
-    # 30-day P&L line from closes
-    pnl_days = []; pnl_vals_30 = []
-    n_days = 30
-    port_closes: dict = {}
-    for sym, info in port.items():
-        d = market_data.get(sym, {})
-        cl = d.get("closes", [])
-        if cl:
-            port_closes[sym] = (cl, float(info.get("shares",1)))
-    if port_closes:
-        max_len = max(len(v[0]) for v in port_closes.values())
-        for i in range(max(0, max_len - n_days), max_len):
-            day_val = sum(
-                closes[i] * shares
-                for closes, shares in port_closes.values()
-                if i < len(closes)
-            )
-            pnl_days.append(str(max_len - n_days + len(pnl_days) + 1))
-            pnl_vals_30.append(round(day_val, 2))
-
-    # Correlation heatmap (portfolio stocks 30-day returns)
-    port_syms = [s for s in port if market_data.get(s, {}).get("closes")]
-    corr_matrix = {}
-    returns_map: dict = {}
-    for sym in port_syms:
-        cl = market_data[sym]["closes"][-31:]
-        returns_map[sym] = _daily_returns(cl)
-    corr_html = ""
-    if len(port_syms) > 1:
-        corr_html = '<div style="overflow-x:auto"><table class="tbl" style="min-width:100%">'
-        corr_html += "<thead><tr><th></th>"
-        for s in port_syms:
-            corr_html += f"<th style='text-align:center'>{s}</th>"
-        corr_html += "</tr></thead><tbody>"
-        for r in port_syms:
-            corr_html += f"<tr><td class='sym'>{r}</td>"
-            for c in port_syms:
-                if r == c:
-                    val = 1.0; bg = "#2dd4bf22"; txt = "#2dd4bf"
-                else:
-                    rv = returns_map.get(r, []); cv = returns_map.get(c, [])
-                    mn = min(len(rv), len(cv))
-                    v = _pearson(rv[:mn], cv[:mn])
-                    val = v if v is not None else 0
-                    if val > 0.3:
-                        bg = f"#22c55e{int(abs(val)*40+20):02x}"; txt = "#22c55e"
-                    elif val < -0.3:
-                        bg = f"#ef4444{int(abs(val)*40+20):02x}"; txt = "#ef4444"
-                    else:
-                        bg = "transparent"; txt = "var(--mid)"
-                corr_html += (f'<td style="text-align:center;background:{bg};'
-                              f'color:{txt};font-weight:700;font-size:12px">'
-                              f'{val:.2f}</td>')
-            corr_html += "</tr>"
-        corr_html += "</tbody></table></div>"
-
-    sym_opts = "".join(f'<option value="{s}">{s}</option>' for s in all_syms)
-    default_sym = all_syms[0] if all_syms else "NVDA"
-    stat_cards = f"""
-<div class="g3" style="margin-bottom:16px">
-  <div class="card-sm"><div class="card-hdr">Portfolio Value</div>
-    <div class="stat-val">${total_val:,.0f}</div>
-    <div class="stat-lbl">฿{total_val*thb:,.0f}</div></div>
-  <div class="card-sm"><div class="card-hdr">Total P&L</div>
-    <div class="stat-val {pnl_col}">{pnl_sign}${total_pnl:,.0f}</div>
-    <div class="stat-lbl {pnl_col}">{pnl_sign}{total_pnl/total_cost*100:.1f}%</div></div>
-  <div class="card-sm"><div class="card-hdr">Best Today</div>
-    <div class="stat-val teal-c">{best_sym or '—'}</div>
-    <div class="stat-lbl pos">+{best_chg:.2f}%</div></div>
-</div>"""
+    default_sym = sym if sym else (all_syms[0] if all_syms else "NVDA")
+    sym_opts = "".join(
+        f'<option value="{s}" {"selected" if s == default_sym else ""}>{s}</option>'
+        for s in all_syms
+    )
+    # Add default sym to list if not already there
+    if default_sym not in all_syms:
+        sym_opts = f'<option value="{default_sym}" selected>{default_sym}</option>' + sym_opts
 
     html = f"""
-{stat_cards}
-<div class="g2" style="margin-bottom:16px">
-  <!-- Donut -->
-  <div class="card">
-    <div class="card-hdr">🍩 Portfolio Allocation</div>
-    <div style="position:relative;height:220px;display:flex;justify-content:center">
-      <canvas id="donutChart"></canvas>
-    </div>
-  </div>
-  <!-- P&L Line -->
-  <div class="card">
-    <div class="card-hdr">📈 30-Day Portfolio Value</div>
-    <div style="position:relative;height:220px">
-      <canvas id="pnlChart"></canvas>
-    </div>
-  </div>
-</div>
-
-<!-- Stock Price Chart -->
-<div class="card" style="margin-bottom:16px">
-  <div class="card-hdr" style="display:flex;align-items:center;gap:12px">
-    📉 Stock Chart
-    <select id="symSelect" onchange="loadChart(this.value)"
-      style="background:var(--card2);border:1px solid var(--border);border-radius:6px;
-             color:var(--text);padding:5px 10px;font-size:12px;cursor:pointer">
+<!-- Chart Toolbar -->
+<div class="card" style="margin-bottom:8px;padding:12px 16px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <a href="/stocks" class="btn btn-ghost btn-sm">← Back</a>
+    <select id="symSelect" onchange="loadSymbol(this.value)"
+      style="background:var(--bg3);border:1px solid var(--border);color:var(--text);
+             border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer">
       {sym_opts}
     </select>
-    <span id="chartLoading" style="color:var(--muted);font-size:11px"></span>
-  </div>
-  <div style="position:relative;height:200px;margin-bottom:8px">
-    <canvas id="priceChart"></canvas>
-  </div>
-  <div style="position:relative;height:80px">
-    <canvas id="rsiChart"></canvas>
+    <div class="tf-sep"></div>
+    <div class="chart-toolbar" style="padding:0">
+      <button class="tf-btn" onclick="setTF('5d')">5D</button>
+      <button class="tf-btn" onclick="setTF('1mo')">1M</button>
+      <button class="tf-btn" onclick="setTF('3mo')">3M</button>
+      <button class="tf-btn" onclick="setTF('6mo')">6M</button>
+      <button class="tf-btn active" id="tf-1y" onclick="setTF('1y')">1Y</button>
+      <button class="tf-btn" onclick="setTF('2y')">2Y</button>
+      <button class="tf-btn" onclick="setTF('5y')">5Y</button>
+    </div>
+    <div class="tf-sep"></div>
+    <div class="chart-toolbar" style="padding:0">
+      <button class="ind-btn active" id="btn-ma" onclick="toggleInd('ma')">MA</button>
+      <button class="ind-btn" id="btn-ema" onclick="toggleInd('ema')">EMA</button>
+      <button class="ind-btn" id="btn-bb" onclick="toggleInd('bb')">BB</button>
+      <button class="ind-btn active" id="btn-vol" onclick="toggleInd('vol')">VOL</button>
+      <button class="ind-btn active" id="btn-rsi" onclick="toggleInd('rsi')">RSI</button>
+      <button class="ind-btn" id="btn-macd" onclick="toggleInd('macd')">MACD</button>
+    </div>
+    <span id="chartLoading" style="color:var(--mid);font-size:12px;margin-left:8px"></span>
   </div>
 </div>
 
-<!-- Correlation Heatmap -->
-<div class="card">
-  <div class="card-hdr">🔗 Correlation Heatmap (30-day returns)</div>
-  {corr_html or '<div style="color:var(--muted)">ต้องมีหุ้นใน portfolio อย่างน้อย 2 ตัว</div>'}
+<!-- OHLCV Info Bar -->
+<div class="ohlcv-bar" id="ohlcv-bar" style="padding:6px 4px;margin-bottom:4px">
+  <span class="sym-label" id="ohlcv-sym">{default_sym}</span>
+  <span id="ohlcv-price" style="font-size:18px;font-weight:600;color:var(--text)">—</span>
+  <span id="ohlcv-ohlc" style="color:var(--mid);font-size:12px"></span>
+  <span id="ohlcv-chg" style="font-size:12px"></span>
+  <span id="ohlcv-vol" style="font-size:12px;color:var(--mid)"></span>
+</div>
+
+<!-- Main Candlestick Chart -->
+<div class="chart-panel">
+  <div class="chart-panel-label">Price</div>
+  <div id="chart-main" style="width:100%;height:50vh;min-height:300px"></div>
+</div>
+
+<!-- Volume Chart -->
+<div class="chart-panel" id="panel-vol">
+  <div class="chart-panel-label">Volume</div>
+  <div id="chart-volume" style="width:100%;height:100px"></div>
+</div>
+
+<!-- RSI Chart -->
+<div class="chart-panel" id="panel-rsi">
+  <div class="chart-panel-label">RSI (14)</div>
+  <div id="chart-rsi" style="width:100%;height:110px"></div>
+</div>
+
+<!-- MACD Chart -->
+<div class="chart-panel" id="panel-macd" style="display:none">
+  <div class="chart-panel-label">MACD (12,26,9)</div>
+  <div id="chart-macd" style="width:100%;height:110px"></div>
 </div>
 """
 
     js = f"""
-// Donut
-new Chart(document.getElementById('donutChart'), {{
-  type: 'doughnut',
-  data: {{
-    labels: {json.dumps(donut_labels)},
-    datasets: [{{ data: {json.dumps(donut_vals)}, backgroundColor: {json.dumps(donut_colors)},
-      borderColor: 'var(--bg)', borderWidth: 2 }}]
-  }},
-  options: {{ responsive:true, maintainAspectRatio:false,
-    plugins: {{ legend:{{position:'right',labels:{{color:'#9999a8',font:{{size:11}},boxWidth:12}}}},
-               tooltip:{{callbacks:{{label:(c)=>c.label+': $'+c.parsed.toLocaleString()}}}} }} }}
-}});
+// ── Load LightweightCharts ──────────────────────────────────────────────────
+const _lcScript = document.createElement('script');
+_lcScript.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
+_lcScript.onload = () => initCharts();
+document.head.appendChild(_lcScript);
 
-// P&L Line
-new Chart(document.getElementById('pnlChart'), {{
-  type: 'line',
-  data: {{
-    labels: {json.dumps(pnl_days)},
-    datasets: [{{
-      label: 'Portfolio Value',
-      data: {json.dumps(pnl_vals_30)},
-      borderColor: '#2dd4bf', borderWidth: 2, pointRadius: 0, fill: true,
-      backgroundColor: ctx => {{
-        const g = ctx.chart.ctx.createLinearGradient(0,0,0,200);
-        g.addColorStop(0,'#2dd4bf33'); g.addColorStop(1,'#2dd4bf00'); return g;
-      }}
-    }}]
-  }},
-  options: {{ responsive:true, maintainAspectRatio:false, animation:false,
-    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:(c)=>'$'+c.parsed.y.toLocaleString()}}}}}},
-    scales:{{ x:{{display:false}}, y:{{grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:10}}}}}} }} }}
-}});
+// ── State ───────────────────────────────────────────────────────────────────
+let currentSym = '{default_sym}';
+let currentPeriod = '1y';
+let _chart, _volChart, _rsiChart, _macdChart;
+let _candleSeries, _volSeries, _rsiSeries, _macdLineSeries, _macdSignalSeries, _macdHistSeries;
+let _ma20Series, _ma50Series, _ma200Series, _ema20Series;
+let _bbUpperSeries, _bbMidSeries, _bbLowerSeries;
+let _indState = {{ma:true, ema:false, bb:false, vol:true, rsi:true, macd:false}};
+let _currentCandles = [];
 
-// Price Chart
-let priceChart, rsiChart;
-function loadChart(sym) {{
-  document.getElementById('chartLoading').textContent = 'กำลังโหลด...';
-  fetch('/api/chart/' + sym).then(r=>r.json()).then(d => {{
-    document.getElementById('chartLoading').textContent = '';
-    if (priceChart) priceChart.destroy();
-    if (rsiChart)   rsiChart.destroy();
-    const closes = d.closes || [];
-    const dates  = d.dates  || closes.map((_,i)=>i+1);
-    // MA20 / MA50
-    const ma20 = closes.map((_,i) => i>=19 ? closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20 : null);
-    const ma50 = closes.map((_,i) => i>=49 ? closes.slice(i-49,i+1).reduce((a,b)=>a+b,0)/50 : null);
-    priceChart = new Chart(document.getElementById('priceChart'), {{
-      type: 'line',
-      data: {{
-        labels: dates,
-        datasets: [
-          {{ label: sym, data: closes, borderColor: '#3b82f6', borderWidth: 1.5,
-             pointRadius: 0, fill: false }},
-          {{ label: 'MA20', data: ma20, borderColor: '#f59e0b', borderWidth: 1,
-             pointRadius: 0, fill: false, borderDash:[4,2], spanGaps:true }},
-          {{ label: 'MA50', data: ma50, borderColor: '#2dd4bf', borderWidth: 1,
-             pointRadius: 0, fill: false, borderDash:[8,4], spanGaps:true }},
-          {{ label: 'Volume', data: d.volumes||[], type:'bar',
-             backgroundColor: '#3b82f620', yAxisID:'y2', order:10 }}
-        ]
-      }},
-      options: {{ responsive:true, maintainAspectRatio:false, animation:false,
-        plugins:{{legend:{{labels:{{color:'#9999a8',font:{{size:11}}}}}}}},
-        scales:{{
-          x:{{display:false}},
-          y:{{grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:10}}}}}},
-          y2:{{position:'right',grid:{{display:false}},ticks:{{display:false}}}}
-        }}
-      }}
-    }});
-    // RSI
-    const rsiVals = d.rsi || [];
-    rsiChart = new Chart(document.getElementById('rsiChart'), {{
-      type: 'line',
-      data: {{
-        labels: dates.slice(-rsiVals.length),
-        datasets: [{{ label:'RSI', data:rsiVals, borderColor:'#8b5cf6', borderWidth:1.5,
-                      pointRadius:0, fill:false }}]
-      }},
-      options: {{
-        responsive:true, maintainAspectRatio:false, animation:false,
-        plugins:{{legend:{{display:false}}}},
-        scales:{{
-          x:{{display:false}},
-          y:{{min:0,max:100,grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:9}},
-               callback:(v)=>v===70?'OB ':v===30?'OS ':v===50?'50':''}}}}
-        }}
-      }}
-    }});
-  }}).catch(()=>{{ document.getElementById('chartLoading').textContent='Error'; }});
+// ── Indicator calculations ──────────────────────────────────────────────────
+function calcMA(data, n) {{
+  return data.map((d,i) => {{
+    if (i < n-1) return null;
+    const sum = data.slice(i-n+1,i+1).reduce((a,b)=>a+b.close,0);
+    return {{time:d.time,value:sum/n}};
+  }}).filter(Boolean);
 }}
-loadChart('{default_sym}');
+function calcEMA(data, n) {{
+  const k=2/(n+1); let ema=data[0].close;
+  return data.map((d,i)=>{{
+    if(i===0){{ema=d.close;return{{time:d.time,value:ema}};}}
+    ema=d.close*k+ema*(1-k); return{{time:d.time,value:ema}};
+  }});
+}}
+function calcBB(data,n=20,mult=2) {{
+  return data.map((d,i)=>{{
+    if(i<n-1)return null;
+    const sl=data.slice(i-n+1,i+1).map(x=>x.close);
+    const mean=sl.reduce((a,b)=>a+b,0)/n;
+    const std=Math.sqrt(sl.map(x=>(x-mean)**2).reduce((a,b)=>a+b,0)/n);
+    return{{time:d.time,upper:mean+mult*std,middle:mean,lower:mean-mult*std}};
+  }}).filter(Boolean);
+}}
+function calcRSI(data,n=14) {{
+  const result=[]; let gains=0,losses=0;
+  for(let i=1;i<data.length;i++){{
+    const diff=data[i].close-data[i-1].close;
+    if(i<=n){{gains+=Math.max(diff,0);losses+=Math.max(-diff,0);
+      if(i===n){{gains/=n;losses/=n;result.push({{time:data[i].time,value:losses===0?100:100-100/(1+gains/losses)}});}}
+      continue;
+    }}
+    gains=(gains*(n-1)+Math.max(diff,0))/n; losses=(losses*(n-1)+Math.max(-diff,0))/n;
+    result.push({{time:data[i].time,value:losses===0?100:100-100/(1+gains/losses)}});
+  }}
+  return result;
+}}
+function calcMACD(data,fast=12,slow=26,sig=9) {{
+  const ef=calcEMA(data,fast),es=calcEMA(data,slow);
+  const macdLine=es.map((d,i)=>{{return{{time:d.time,value:ef[i].value-d.value}}}});
+  const k=2/(sig+1); let ema=macdLine[0].value;
+  const signal=macdLine.map(d=>{{ema=d.value*k+ema*(1-k);return{{time:d.time,value:ema}}}});
+  const hist=macdLine.map((d,i)=>{{
+    const v=d.value-signal[i].value;
+    return{{time:d.time,value:v,color:v>=0?'#26a69a':'#ef5350'}};
+  }});
+  return{{macd:macdLine,signal,hist}};
+}}
+
+// ── Chart init ──────────────────────────────────────────────────────────────
+function initCharts() {{
+  const LC = LightweightCharts;
+  const chartOpts = (h) => ({{
+    layout:{{background:{{color:'#131722'}},textColor:'#d1d4dc'}},
+    grid:{{vertLines:{{color:'#2a2e39'}},horzLines:{{color:'#2a2e39'}}}},
+    rightPriceScale:{{borderColor:'#363a45'}},
+    timeScale:{{borderColor:'#363a45',timeVisible:true,secondsVisible:false}},
+    crosshair:{{mode:LC.CrosshairMode.Normal}},
+    width:document.getElementById('chart-main').offsetWidth,
+    height:h,
+  }});
+
+  _chart = LC.createChart(document.getElementById('chart-main'), {{
+    ...chartOpts(document.getElementById('chart-main').offsetHeight||Math.floor(window.innerHeight*0.50)),
+    crosshair:{{mode:LC.CrosshairMode.Normal}},
+  }});
+  _candleSeries = _chart.addCandlestickSeries({{
+    upColor:'#26a69a',downColor:'#ef5350',
+    borderUpColor:'#26a69a',borderDownColor:'#ef5350',
+    wickUpColor:'#26a69a',wickDownColor:'#ef5350',
+  }});
+  _ma20Series  = _chart.addLineSeries({{color:'#f0b429',lineWidth:1,title:'MA20',lastValueVisible:false,priceLineVisible:false}});
+  _ma50Series  = _chart.addLineSeries({{color:'#2dd4bf',lineWidth:1,title:'MA50',lastValueVisible:false,priceLineVisible:false}});
+  _ma200Series = _chart.addLineSeries({{color:'#ff6b35',lineWidth:1,title:'MA200',lastValueVisible:false,priceLineVisible:false}});
+  _ema20Series = _chart.addLineSeries({{color:'#ab47bc',lineWidth:1,lineStyle:1,title:'EMA20',lastValueVisible:false,priceLineVisible:false}});
+  _bbUpperSeries = _chart.addLineSeries({{color:'rgba(41,98,255,0.7)',lineWidth:1,lineStyle:2,title:'BB+',lastValueVisible:false,priceLineVisible:false}});
+  _bbMidSeries   = _chart.addLineSeries({{color:'rgba(41,98,255,0.4)',lineWidth:1,lineStyle:2,title:'BB~',lastValueVisible:false,priceLineVisible:false}});
+  _bbLowerSeries = _chart.addLineSeries({{color:'rgba(41,98,255,0.7)',lineWidth:1,lineStyle:2,title:'BB-',lastValueVisible:false,priceLineVisible:false}});
+
+  _volChart = LC.createChart(document.getElementById('chart-volume'), {{
+    ...chartOpts(document.getElementById('chart-volume').offsetHeight||100),
+    rightPriceScale:{{borderColor:'#363a45',scaleMargins:{{top:0.1,bottom:0}}}},
+    timeScale:{{visible:false}},
+  }});
+  _volSeries = _volChart.addHistogramSeries({{priceFormat:{{type:'volume'}},priceScaleId:''}});
+
+  _rsiChart = LC.createChart(document.getElementById('chart-rsi'), {{
+    ...chartOpts(document.getElementById('chart-rsi').offsetHeight||110),
+    rightPriceScale:{{borderColor:'#363a45',scaleMargins:{{top:0.1,bottom:0.1}}}},
+    timeScale:{{visible:false}},
+  }});
+  _rsiSeries = _rsiChart.addLineSeries({{color:'#9c27b0',lineWidth:1,title:'RSI'}});
+  // RSI reference lines
+  _rsiChart.addLineSeries({{color:'rgba(239,83,80,0.4)',lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false}})
+    .setData([{{time:'2000-01-01',value:70}}]); // placeholder — we'll set properly after data load
+
+  _macdChart = LC.createChart(document.getElementById('chart-macd'), {{
+    ...chartOpts(document.getElementById('chart-macd').offsetHeight||110),
+    rightPriceScale:{{borderColor:'#363a45',scaleMargins:{{top:0.1,bottom:0.1}}}},
+    timeScale:{{visible:false}},
+  }});
+  _macdLineSeries   = _macdChart.addLineSeries({{color:'#2962ff',lineWidth:1,title:'MACD'}});
+  _macdSignalSeries = _macdChart.addLineSeries({{color:'#ff6b35',lineWidth:1,title:'Signal'}});
+  _macdHistSeries   = _macdChart.addHistogramSeries({{priceScaleId:'',title:'Hist'}});
+
+  // Sync crosshair
+  function syncCH(src, targets, param) {{
+    if(!param||!param.time) {{ targets.forEach(t=>t.clearCrosshairPosition&&t.clearCrosshairPosition()); return; }}
+    targets.forEach(t=>{{
+      if(t._series) try{{t.setCrosshairPosition(0,param.time,t._series);}}catch(e){{}}
+    }});
+  }}
+  _volChart._series  = _volSeries;
+  _rsiChart._series  = _rsiSeries;
+  _macdChart._series = _macdLineSeries;
+  _chart.subscribeCrosshairMove(p=>syncCH(_chart,[_volChart,_rsiChart,_macdChart],p));
+
+  // OHLCV bar on crosshair move
+  _chart.subscribeCrosshairMove(param=>{{
+    if(!param||!param.time||!param.seriesData)return;
+    const c=param.seriesData.get(_candleSeries);
+    if(!c)return;
+    const chg=((c.close-c.open)/c.open*100).toFixed(2);
+    const col=c.close>=c.open?'#26a69a':'#ef5350';
+    const sign=chg>=0?'+':'';
+    document.getElementById('ohlcv-price').style.color=col;
+    document.getElementById('ohlcv-price').textContent=c.close.toFixed(2);
+    document.getElementById('ohlcv-ohlc').innerHTML=
+      `O:<b>${{c.open.toFixed(2)}}</b> H:<b>${{c.high.toFixed(2)}}</b> L:<b>${{c.low.toFixed(2)}}</b> C:<b>${{c.close.toFixed(2)}}</b>`;
+    document.getElementById('ohlcv-chg').style.color=col;
+    document.getElementById('ohlcv-chg').textContent=sign+chg+'%';
+  }});
+
+  // Resize
+  const ro=new ResizeObserver(()=>{{
+    [['chart-main',_chart],['chart-volume',_volChart],['chart-rsi',_rsiChart],['chart-macd',_macdChart]]
+      .forEach(([id,ch])=>{{const el=document.getElementById(id);if(el&&ch)ch.resize(el.offsetWidth,el.offsetHeight);}});
+  }});
+  ro.observe(document.getElementById('pageContent'));
+
+  loadChart(currentSym, currentPeriod);
+}}
+
+// ── Load chart data ──────────────────────────────────────────────────────────
+function loadChart(sym, period) {{
+  document.getElementById('chartLoading').textContent='Loading...';
+  document.getElementById('ohlcv-sym').textContent=sym;
+  fetch('/api/chart/'+sym+'?period='+period)
+    .then(r=>r.json()).then(data=>{{
+      document.getElementById('chartLoading').textContent='';
+      const candles=data.candles||[];
+      if(!candles.length){{document.getElementById('chartLoading').textContent='No data';return;}}
+      _currentCandles=candles;
+      updateData(candles);
+      // Initial OHLCV from last candle
+      const last=candles[candles.length-1];
+      const first=candles[0];
+      const chg=((last.close-first.close)/first.close*100).toFixed(2);
+      const col=last.close>=last.open?'#26a69a':'#ef5350';
+      document.getElementById('ohlcv-price').textContent=last.close.toFixed(2);
+      document.getElementById('ohlcv-price').style.color=col;
+      document.getElementById('ohlcv-chg').textContent=(chg>=0?'+':'')+chg+'%';
+      document.getElementById('ohlcv-chg').style.color=col;
+      const v=last.volume;
+      document.getElementById('ohlcv-vol').textContent='Vol: '+(v>1e6?(v/1e6).toFixed(1)+'M':v>1e3?(v/1e3).toFixed(0)+'K':v);
+    }})
+    .catch(()=>{{document.getElementById('chartLoading').textContent='Error';}});
+}}
+
+function updateData(candles) {{
+  if(!_candleSeries)return;
+  _candleSeries.setData(candles);
+
+  // MA overlays
+  if(_indState.ma){{
+    _ma20Series.setData(calcMA(candles,20));
+    _ma50Series.setData(calcMA(candles,50));
+    _ma200Series.setData(calcMA(candles,200));
+  }} else {{_ma20Series.setData([]);_ma50Series.setData([]);_ma200Series.setData([]);}}
+
+  // EMA
+  if(_indState.ema) _ema20Series.setData(calcEMA(candles,20));
+  else _ema20Series.setData([]);
+
+  // BB
+  if(_indState.bb){{
+    const bb=calcBB(candles,20,2);
+    _bbUpperSeries.setData(bb.map(b=>{{return{{time:b.time,value:b.upper}}}}));
+    _bbMidSeries.setData(bb.map(b=>{{return{{time:b.time,value:b.middle}}}}));
+    _bbLowerSeries.setData(bb.map(b=>{{return{{time:b.time,value:b.lower}}}}));
+  }} else {{_bbUpperSeries.setData([]);_bbMidSeries.setData([]);_bbLowerSeries.setData([]);}}
+
+  // Volume
+  if(_indState.vol) {{
+    _volSeries.setData(candles.map(c=>{{
+      return{{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(38,166,154,0.6)':'rgba(239,83,80,0.6)'}};
+    }}));
+  }} else _volSeries.setData([]);
+
+  // RSI
+  if(_indState.rsi) {{
+    const rsiData=calcRSI(candles,14);
+    _rsiSeries.setData(rsiData);
+    // Sync time scale for RSI 70/30 lines using price scale
+    if(rsiData.length){{
+      const t0=rsiData[0].time, t1=rsiData[rsiData.length-1].time;
+    }}
+  }} else _rsiSeries.setData([]);
+
+  // MACD
+  if(_indState.macd){{
+    const m=calcMACD(candles);
+    _macdLineSeries.setData(m.macd);
+    _macdSignalSeries.setData(m.signal);
+    _macdHistSeries.setData(m.hist);
+  }} else {{_macdLineSeries.setData([]);_macdSignalSeries.setData([]);_macdHistSeries.setData([]);}}
+
+  _chart.timeScale().fitContent();
+}}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+function setTF(period) {{
+  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  currentPeriod=period;
+  loadChart(currentSym, period);
+}}
+
+function loadSymbol(sym) {{
+  currentSym=sym;
+  document.getElementById('ohlcv-sym').textContent=sym;
+  loadChart(sym, currentPeriod);
+}}
+
+function toggleInd(name) {{
+  _indState[name]=!_indState[name];
+  const btn=document.getElementById('btn-'+name);
+  btn.classList.toggle('active',_indState[name]);
+  if(['vol','rsi','macd'].includes(name)){{
+    const panel=document.getElementById('panel-'+name);
+    if(panel) panel.style.display=_indState[name]?'':'none';
+  }}
+  if(_currentCandles.length) updateData(_currentCandles);
+}}
 """
-    return _base("charts", "Charts", html, user, "", js)
+    return _base("charts", f"Chart — {default_sym}", html, user, "", js)
 
 
 # ─── ALERTS PAGE ──────────────────────────────────────────────────────────────

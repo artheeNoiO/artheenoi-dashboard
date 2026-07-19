@@ -1059,11 +1059,11 @@ def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
 @login_required
 def api_prices():
     """Live price JSON for frontend polling (every 90s)."""
-    mkt, _, _ = _get_mkt()
+    mkt, _, thb = _get_mkt()
     user  = get_user(session["username"])
     syms  = list(user.get("portfolio", {}).keys()) + user.get("watchlist", [])
     syms += ETFS + [GOLD, CRYPTO]
-    data  = {}
+    data  = {"_thb": round(thb, 2)}
     for sym in set(syms):
         d = mkt.get(sym)
         if d and d.get("price"):
@@ -1251,36 +1251,61 @@ def charts():
     user = get_user(session["username"])
     return dw.charts_page(user, mkt, thb)
 
+@app.route("/chart/<sym>")
+@login_required
+def chart_sym(sym):
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = get_user(session["username"])
+    return dw.charts_page(user, mkt, thb, sym=sym.upper())
+
 @app.route("/api/chart/<sym>")
 @login_required
 def api_chart(sym):
     sym = sym.upper()
+    period = request.args.get("period", "1y")
+    interval_map = {
+        "5d": "1d", "1mo": "1d", "3mo": "1d", "6mo": "1d",
+        "1y": "1d", "2y": "1wk", "5y": "1wk",
+    }
+    interval = interval_map.get(period, "1d")
     try:
         import yfinance as yf
         import warnings; warnings.filterwarnings("ignore")
         t = yf.Ticker(sym)
-        hist = t.history(period="6mo", interval="1d")
+        hist = t.history(period=period, interval=interval)
         if hist.empty:
-            return jsonify({"error": "no data"})
-        closes  = [round(float(c), 4) for c in hist["Close"].dropna()]
-        opens   = [round(float(c), 4) for c in hist["Open"].dropna()]
-        highs   = [round(float(c), 4) for c in hist["High"].dropna()]
-        lows    = [round(float(c), 4) for c in hist["Low"].dropna()]
-        volumes = [int(v) for v in hist["Volume"].fillna(0)]
-        dates   = [str(d.date()) for d in hist.index]
-        # RSI
-        from dashboard_web import _calc_rsi
-        rsi_series = []
-        for i in range(14, len(closes)):
-            r = _calc_rsi(closes[:i+1])
-            if r is not None:
-                rsi_series.append(r)
-        return jsonify({"dates": dates, "closes": closes, "opens": opens,
-                        "highs": highs, "lows": lows, "volumes": volumes,
-                        "rsi": rsi_series})
+            return jsonify({"error": "no data", "candles": []})
+        fi = t.fast_info
+        candles = []
+        for ts, row in hist.iterrows():
+            try:
+                date_str = ts.strftime("%Y-%m-%d")
+                candles.append({
+                    "time":   date_str,
+                    "open":   round(float(row["Open"]),   4),
+                    "high":   round(float(row["High"]),   4),
+                    "low":    round(float(row["Low"]),    4),
+                    "close":  round(float(row["Close"]),  4),
+                    "volume": int(row["Volume"] or 0),
+                })
+            except Exception:
+                pass
+        last_price = 0.0
+        try:
+            last_price = round(float(fi.last_price or (candles[-1]["close"] if candles else 0)), 4)
+        except Exception:
+            last_price = candles[-1]["close"] if candles else 0.0
+        return jsonify({
+            "symbol":   sym,
+            "name":     getattr(fi, "exchange", sym),
+            "currency": "USD",
+            "price":    last_price,
+            "candles":  candles,
+        })
     except Exception as e:
         log.warning(f"[api/chart/{sym}] {e}")
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e), "candles": []})
 
 # ─── Alerts ───────────────────────────────────────────────────────────────────
 
