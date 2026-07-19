@@ -365,6 +365,11 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("realized",    "💵", "Realized P&L"),
         ("compare",     "⚖️", "Compare"),
         ("macro",       "🌐", "Macro"),
+        ("earnings",    "📆", "Earnings"),
+        ("sentiment",   "🧠", "Sentiment"),
+        ("targets",     "🎯", "Targets"),
+        ("portfolios",  "💼", "Portfolios"),
+        ("settings",    "⚙️", "Settings"),
     ]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -886,7 +891,9 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
     <div class="card-hdr" style="margin-bottom:0">📈 Portfolio Value History</div>
     <span style="font-size:11px;color:var(--muted)" id="hist-status">กำลังโหลด...</span>
   </div>
-  <canvas id="portHistChart" style="width:100%;height:160px;display:block"></canvas>
+  <div style="position:relative;height:160px;width:100%">
+    <canvas id="portHistChart"></canvas>
+  </div>
 </div>
 
 <!-- ETF Cards -->
@@ -3154,6 +3161,11 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("realized",    "💵", "Realized P&L"),
         ("compare",     "⚖️", "Compare"),
         ("macro",       "🌐", "Macro"),
+        ("earnings",    "📆", "Earnings"),
+        ("sentiment",   "🧠", "Sentiment"),
+        ("targets",     "🎯", "Targets"),
+        ("portfolios",  "💼", "Portfolios"),
+        ("settings",    "⚙️", "Settings"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -6038,6 +6050,420 @@ function loadMacro(){
 document.addEventListener('DOMContentLoaded',loadMacro);
 """
     return _base("macro", "Macro Overview", html, user, ticker_html, js)
+
+
+def earnings_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    port  = user.get("portfolio", {})
+    wl    = user.get("watchlist", [])
+    syms  = list(dict.fromkeys(list(port.keys()) + wl))
+
+    chips = "".join(
+        f'<span class="corr-chip active" data-sym="{s}" onclick="this.classList.toggle(\'active\')">{s}</span>'
+        for s in syms
+    )
+
+    html = f"""
+<div class="card" style="margin-bottom:14px">
+  <div class="card-hdr">📆 Earnings Countdown — Portfolio + Watchlist</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0" id="earnChips">{chips if chips else '<span style="color:var(--muted)">ไม่มีหุ้นใน Portfolio/Watchlist</span>'}</div>
+  <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="loadEarnings()">📆 โหลด Earnings Calendar</button>
+    <span style="color:var(--muted);font-size:12px;align-self:center">ดึงข้อมูลจาก yfinance · อาจใช้เวลา 10-30 วินาที</span>
+  </div>
+</div>
+
+<div id="earnStatus" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
+<div id="earnGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px"></div>
+"""
+
+    js = """
+function loadEarnings(){
+  const syms=Array.from(document.querySelectorAll('#earnChips .corr-chip.active')).map(c=>c.dataset.sym);
+  if(!syms.length){document.getElementById('earnStatus').textContent='⚠️ เลือก symbol ก่อน';return;}
+  document.getElementById('earnStatus').textContent='⏳ กำลังดึง Earnings date…';
+  document.getElementById('earnGrid').innerHTML='';
+  fetch('/api/earnings-calendar?syms='+syms.join(','))
+    .then(r=>r.json()).then(d=>{
+      if(d.error){document.getElementById('earnStatus').textContent='❌ '+d.error;return;}
+      let html='';
+      for(const item of d.earnings){
+        const days=item.days_left;
+        const col=days<0?'var(--muted)':days<=7?'var(--red)':days<=30?'var(--gold)':'var(--green)';
+        const badge=days<0?'ผ่านแล้ว':days===0?'วันนี้!':days<=7?`${days}d ⚠️`:`${days}d`;
+        html+=`<div class="card" style="padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-weight:800;font-size:16px">${item.sym}</span>
+            <span style="font-size:12px;font-weight:700;color:${col};border:1px solid ${col};border-radius:10px;padding:2px 8px">${badge}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted)">Earnings Date</div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px">${item.date||'ไม่ทราบ'}</div>
+          ${item.eps_est?`<div style="font-size:11px;color:var(--muted)">EPS Estimate: <b style="color:var(--teal)">$${item.eps_est}</b></div>`:''}
+          ${item.rev_est?`<div style="font-size:11px;color:var(--muted)">Revenue Est: <b style="color:var(--teal)">${item.rev_est}</b></div>`:''}
+          ${item.last_eps!=null?`<div style="font-size:11px;color:var(--muted)">Last EPS: <b style="color:var(--gold)">$${item.last_eps}</b></div>`:''}
+        </div>`;
+      }
+      document.getElementById('earnGrid').innerHTML=html||'<div style="color:var(--muted)">ไม่มีข้อมูล</div>';
+      document.getElementById('earnStatus').textContent='✅ อัปเดต '+d.updated;
+    }).catch(e=>{document.getElementById('earnStatus').textContent='❌ '+e;});
+}
+"""
+    extra_css = """<style>
+.corr-chip{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;
+  background:var(--bg3);color:var(--muted);cursor:pointer;border:1px solid var(--bg3);transition:all .2s;}
+.corr-chip.active{background:var(--teal);color:#131722;border-color:var(--teal);}
+</style>"""
+    return _base("earnings", "Earnings Countdown", extra_css + html, user, ticker_html, js)
+
+
+def sentiment_page(user: dict, market_data: dict, marketaux_key: str = "") -> str:
+    ticker_html = _ticker_html(market_data)
+    port = user.get("portfolio", {})
+    wl   = user.get("watchlist", [])
+    syms = list(dict.fromkeys(list(port.keys()) + wl))[:20]
+
+    chips = "".join(
+        f'<span class="corr-chip active" data-sym="{s}" onclick="this.classList.toggle(\'active\')">{s}</span>'
+        for s in syms
+    )
+
+    html = f"""
+<div class="card" style="margin-bottom:14px">
+  <div class="card-hdr">🧠 News Sentiment — Bullish/Bearish Score ต่อหุ้น</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:8px">ดึงข่าวล่าสุดจาก MarketAux · วิเคราะห์ sentiment score ทุกบทความ · เฉลี่ยเป็น gauge ต่อ symbol</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">{chips if chips else '<span style="color:var(--muted)">ไม่มีหุ้นใน Portfolio/Watchlist</span>'}</div>
+  <button class="btn btn-primary" onclick="loadSentiment()">🧠 วิเคราะห์ Sentiment</button>
+</div>
+
+<div id="sentStatus" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
+<div id="sentGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+"""
+
+    js = """
+function loadSentiment(){
+  const syms=Array.from(document.querySelectorAll('.corr-chip.active')).map(c=>c.dataset.sym);
+  if(!syms.length){document.getElementById('sentStatus').textContent='⚠️ เลือก symbol ก่อน';return;}
+  document.getElementById('sentStatus').textContent='⏳ กำลังวิเคราะห์ sentiment… (อาจใช้เวลา ~30s)';
+  document.getElementById('sentGrid').innerHTML='';
+  Promise.all(syms.map(sym=>
+    fetch('/api/sentiment/'+sym).then(r=>r.json()).catch(()=>({sym,error:'fail'}))
+  )).then(results=>{
+    let html='';
+    for(const d of results){
+      if(d.error&&!d.score&&d.score!==0){
+        html+=`<div class="card" style="padding:14px"><b>${d.sym}</b><br><span style="color:var(--muted);font-size:12px">ไม่มีข้อมูล</span></div>`;
+        continue;
+      }
+      const score=d.score||0; // -1 to 1
+      const pct=Math.round((score+1)/2*100); // 0-100
+      const col=score>0.2?'var(--green)':score<-0.2?'var(--red)':'var(--gold)';
+      const label=score>0.4?'VERY BULLISH':score>0.1?'BULLISH':score<-0.4?'VERY BEARISH':score<-0.1?'BEARISH':'NEUTRAL';
+      html+=`<div class="card" style="padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-weight:800;font-size:16px">${d.sym}</span>
+          <span style="font-size:11px;font-weight:700;color:${col};border:1px solid ${col};border-radius:10px;padding:2px 8px">${label}</span>
+        </div>
+        <div style="background:var(--bg3);border-radius:4px;height:8px;margin-bottom:6px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:width 1s"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:8px">
+          <span>Bearish</span><span style="color:${col};font-weight:700">${score>=0?'+':''}${score.toFixed(3)}</span><span>Bullish</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">จาก ${d.count||0} บทความ · อัปเดต ${d.updated||''}</div>
+        ${(d.headlines||[]).slice(0,2).map(h=>`<div style="font-size:11px;color:var(--mid);margin-top:4px;border-left:2px solid var(--bg3);padding-left:6px">${h}</div>`).join('')}
+      </div>`;
+    }
+    document.getElementById('sentGrid').innerHTML=html||'<div style="color:var(--muted)">ไม่มีข้อมูล</div>';
+    document.getElementById('sentStatus').textContent='✅ วิเคราะห์เสร็จ';
+  });
+}
+"""
+    extra_css = """<style>
+.corr-chip{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;
+  background:var(--bg3);color:var(--muted);cursor:pointer;border:1px solid var(--bg3);transition:all .2s;}
+.corr-chip.active{background:var(--teal);color:#131722;border-color:var(--teal);}
+</style>"""
+    return _base("sentiment", "News Sentiment", extra_css + html, user, ticker_html, js)
+
+
+def targets_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    targets = user.get("price_targets", {})
+    port_syms = list(user.get("portfolio", {}).keys())
+    wl_syms   = user.get("watchlist", [])
+    all_syms  = list(dict.fromkeys(port_syms + wl_syms))
+
+    rows_html = ""
+    for sym, tgt in targets.items():
+        d = market_data.get(sym, {})
+        price = float(d.get("price") or 0)
+        target_p = float(tgt.get("target") or 0)
+        stop_p   = float(tgt.get("stop") or 0)
+        notes    = tgt.get("notes", "")
+
+        upside = ((target_p - price) / price * 100) if price and target_p else 0
+        downside = ((stop_p - price) / price * 100) if price and stop_p else 0
+        # Progress bar: 0% = stop, 100% = target
+        if target_p and stop_p and target_p != stop_p:
+            prog = max(0, min(100, (price - stop_p) / (target_p - stop_p) * 100))
+        else:
+            prog = 50
+        prog_col = "var(--green)" if prog > 65 else "var(--gold)" if prog > 35 else "var(--red)"
+
+        rows_html += f"""
+<div class="card" style="padding:14px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+    <div>
+      <div style="font-size:18px;font-weight:800">{sym}</div>
+      {f'<div style="font-size:11px;color:var(--muted)">{notes}</div>' if notes else ''}
+    </div>
+    <form method="POST" action="/targets/delete" style="margin:0">
+      <input type="hidden" name="sym" value="{sym}">
+      <button class="btn btn-danger btn-sm" type="submit">✕</button>
+    </form>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;font-size:12px">
+    <div style="text-align:center">
+      <div style="color:var(--muted);font-size:10px;text-transform:uppercase">ราคาปัจจุบัน</div>
+      <div style="font-weight:700;font-size:14px">${price:,.2f}</div>
+    </div>
+    <div style="text-align:center">
+      <div style="color:var(--muted);font-size:10px;text-transform:uppercase">Target</div>
+      <div style="font-weight:700;font-size:14px;color:var(--green)">${target_p:,.2f}</div>
+      <div style="font-size:10px;color:var(--green)">{upside:+.1f}%</div>
+    </div>
+    <div style="text-align:center">
+      <div style="color:var(--muted);font-size:10px;text-transform:uppercase">Stop Loss</div>
+      <div style="font-weight:700;font-size:14px;color:var(--red)">${stop_p:,.2f}</div>
+      <div style="font-size:10px;color:var(--red)">{downside:+.1f}%</div>
+    </div>
+  </div>
+  <div style="background:var(--bg3);border-radius:4px;height:8px;overflow:hidden;position:relative">
+    <div style="position:absolute;left:0;top:0;height:100%;width:{prog:.1f}%;background:{prog_col};border-radius:4px;transition:width 1s"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px">
+    <span>Stop ${stop_p:,.0f}</span>
+    <span style="color:{prog_col};font-weight:700">{prog:.0f}% ถึง target</span>
+    <span>Target ${target_p:,.0f}</span>
+  </div>
+</div>"""
+
+    sym_opts = "".join(f'<option value="{s}">{s}</option>' for s in all_syms)
+
+    html = f"""
+<!-- Add Target Form -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">🎯 ตั้ง Price Target ใหม่</div>
+  <form method="POST" action="/targets/set">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbol</div>
+        <input name="sym" list="symList" placeholder="หรือพิมพ์เอง" style="width:100%;text-transform:uppercase" maxlength="12">
+        <datalist id="symList">{sym_opts}</datalist>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Target Price ($)</div>
+        <input name="target" type="number" step="0.01" placeholder="เป้าขึ้น" style="width:100%" required>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Stop Loss ($)</div>
+        <input name="stop" type="number" step="0.01" placeholder="จุดตัดขาดทุน" style="width:100%">
+      </div>
+      <div style="grid-column:span 2">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">โน้ต / Thesis</div>
+        <input name="notes" placeholder="ทำไมถึงตั้ง target นี้..." style="width:100%">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">💾 บันทึก Target</button>
+  </form>
+</div>
+
+<!-- Targets Grid -->
+{f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">{rows_html}</div>' if targets else '<div class="card" style="text-align:center;color:var(--muted);padding:32px">ยังไม่มี Price Target — เพิ่มด้านบน</div>'}
+"""
+    return _base("targets", "Price Targets", html, user, ticker_html, "")
+
+
+def portfolios_page(user: dict, market_data: dict, thb: float) -> str:
+    ticker_html = _ticker_html(market_data)
+    raw_user    = user  # already has 'portfolio' injected
+    ports       = user.get("portfolios", {})
+    active_key  = user.get("active_portfolio", "default")
+
+    # If old-style (no portfolios dict), show migration note
+    if not ports:
+        ports = {"default": {"label": "Default Portfolio", "holdings": user.get("portfolio", {})}}
+
+    port_cards = ""
+    for key, pdata in ports.items():
+        label    = pdata.get("label", key)
+        holdings = pdata.get("holdings", {})
+        # Calculate value
+        total = 0.0
+        for sym, info in holdings.items():
+            qty   = float(info.get("qty", 0) or info.get("shares", 0) or 0)
+            price = float((market_data.get(sym) or {}).get("price") or 0)
+            total += qty * price
+        is_active = key == active_key
+        border    = "border:2px solid var(--teal)" if is_active else "border:1px solid var(--border)"
+        badge     = '<span style="font-size:10px;background:var(--teal);color:#131722;border-radius:8px;padding:1px 8px;font-weight:700">ACTIVE</span>' if is_active else ""
+
+        port_cards += f"""
+<div class="card" style="{border};padding:14px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+    <div>
+      <div style="font-size:16px;font-weight:800">{label} {badge}</div>
+      <div style="font-size:11px;color:var(--muted)">{len(holdings)} holdings · ${total:,.2f} USD</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      {f'''<form method="POST" action="/portfolios/switch" style="margin:0">
+        <input type="hidden" name="key" value="{key}">
+        <button class="btn btn-primary btn-sm" type="submit">Switch</button>
+      </form>''' if not is_active else ''}
+      {f'''<form method="POST" action="/portfolios/delete" style="margin:0" onsubmit="return confirm('ลบพอร์ต {label}?')">
+        <input type="hidden" name="key" value="{key}">
+        <button class="btn btn-danger btn-sm" type="submit">ลบ</button>
+      </form>''' if key != active_key else ''}
+    </div>
+  </div>
+  <!-- Holdings mini-list -->
+  <div style="font-size:11px;color:var(--muted)">{' · '.join(list(holdings.keys())[:8]) or '(ว่าง)'}{' …' if len(holdings)>8 else ''}</div>
+</div>"""
+
+    html = f"""
+<!-- Active Portfolio Banner -->
+<div style="background:var(--bg2);border-left:4px solid var(--teal);padding:10px 14px;border-radius:4px;margin-bottom:16px;font-size:13px">
+  💼 Portfolio ที่ใช้งานอยู่: <b style="color:var(--teal)">{ports.get(active_key,{}).get('label', active_key)}</b>
+  — การดู Stocks/Charts/Signals ทุกหน้าจะใช้พอร์ตนี้
+</div>
+
+<!-- Create New Portfolio -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">➕ สร้าง Portfolio ใหม่</div>
+  <form method="POST" action="/portfolios/create" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ชื่อ (key, ไม่มีช่องว่าง)</div>
+      <input name="key" placeholder="เช่น paper, us_tech" style="width:160px"
+             pattern="[a-zA-Z0-9_]+" title="ตัวอักษร/ตัวเลข/_เท่านั้น" required>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ชื่อแสดง</div>
+      <input name="label" placeholder="เช่น US Tech Portfolio" style="width:200px" required>
+    </div>
+    <button class="btn btn-primary" type="submit">➕ สร้าง</button>
+  </form>
+</div>
+
+<!-- Portfolio List -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+  {port_cards}
+</div>
+
+<!-- Import/Export CSV -->
+<div class="card" style="margin-top:16px">
+  <div class="card-hdr">📥 Import / 📤 Export Portfolio (CSV)</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Import CSV (คอลัมน์: sym,qty,cost)</div>
+      <form method="POST" action="/portfolio/import" enctype="multipart/form-data">
+        <input type="file" name="csv_file" accept=".csv" style="margin-bottom:6px;width:100%">
+        <button class="btn btn-primary btn-sm" type="submit">📥 Import</button>
+      </form>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Export พอร์ตปัจจุบันเป็น CSV</div>
+      <a href="/portfolio/export" class="btn btn-primary btn-sm">📤 Download CSV</a>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">
+    รูปแบบ CSV: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">sym,qty,cost</code>
+    เช่น <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">NVDA,2,850</code>
+  </div>
+</div>
+"""
+    return _base("portfolios", "Portfolios", html, user, ticker_html, "")
+
+
+def settings_page(user: dict, flash_msg: str = "") -> str:
+    display    = user.get("display_name", "")
+    uname      = user.get("_username", "")
+    or_key     = user.get("openrouter_key", "")
+    tg_notify  = user.get("telegram_notify", True)
+    tg_checked = "checked" if tg_notify else ""
+    flash_html = f'<div style="background:#1a3a2a;border-left:3px solid var(--green);padding:10px 14px;border-radius:4px;margin-bottom:14px;font-size:13px;color:var(--green)">{flash_msg}</div>' if flash_msg else ""
+
+    html = f"""
+{flash_html}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+<!-- Profile Settings -->
+<div class="card">
+  <div class="card-hdr">👤 Profile</div>
+  <form method="POST" action="/settings/save">
+    <input type="hidden" name="section" value="profile">
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Username (แก้ไขไม่ได้)</div>
+      <input value="{uname}" disabled style="width:100%;opacity:.5">
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Display Name</div>
+      <input name="display_name" value="{display}" style="width:100%" required>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">เปลี่ยน Password (เว้นว่างถ้าไม่เปลี่ยน)</div>
+      <input name="new_password" type="password" placeholder="รหัสผ่านใหม่" style="width:100%">
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ยืนยัน Password ใหม่</div>
+      <input name="confirm_password" type="password" placeholder="พิมพ์อีกครั้ง" style="width:100%">
+    </div>
+    <button class="btn btn-primary" type="submit">💾 บันทึก Profile</button>
+  </form>
+</div>
+
+<!-- API & Notifications -->
+<div class="card">
+  <div class="card-hdr">🔑 API Keys & Notifications</div>
+  <form method="POST" action="/settings/save">
+    <input type="hidden" name="section" value="api">
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">OpenRouter API Key (สำหรับ AI features)</div>
+      <input name="openrouter_key" value="{or_key}" placeholder="sk-or-..." style="width:100%;font-family:monospace;font-size:12px">
+      <div style="font-size:10px;color:var(--muted);margin-top:3px">เว้นว่าง = ใช้ system key · มี key ส่วนตัว = เร็วกว่า</div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="telegram_notify" value="1" {tg_checked}
+               style="width:16px;height:16px;accent-color:var(--teal)">
+        <div>
+          <div style="font-size:13px">Telegram Notification</div>
+          <div style="font-size:11px;color:var(--muted)">ส่ง Telegram เมื่อ price alert trigger (ต้องตั้ง BOT_TOKEN ใน env)</div>
+        </div>
+      </label>
+    </div>
+    <button class="btn btn-primary" type="submit">💾 บันทึก API Settings</button>
+  </form>
+</div>
+
+<!-- Danger Zone -->
+<div class="card" style="border-color:var(--red);grid-column:span 2">
+  <div class="card-hdr" style="color:var(--red)">⚠️ Danger Zone</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <form method="POST" action="/portfolio/clear" onsubmit="return confirm('ลบหุ้นทั้งหมดใน Portfolio?')">
+      <button class="btn btn-danger btn-sm" type="submit">🗑️ ล้าง Portfolio</button>
+    </form>
+    <form method="POST" action="/watchlist/clear" onsubmit="return confirm('ล้าง Watchlist?')">
+      <button class="btn btn-danger btn-sm" type="submit">🗑️ ล้าง Watchlist</button>
+    </form>
+    <form method="POST" action="/journal/clear" onsubmit="return confirm('ลบ Trade Journal ทั้งหมด?')">
+      <button class="btn btn-danger btn-sm" type="submit">🗑️ ล้าง Journal</button>
+    </form>
+  </div>
+</div>
+
+</div>
+"""
+    return _base("settings", "Settings", html, user, "", "")
 
 
 LOADING_PAGE = """<!DOCTYPE html>
