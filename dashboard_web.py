@@ -187,16 +187,20 @@ def _base(page_id: str, title: str, content: str, user: dict,
     display = user.get("display_name", "User")
     is_admin = user.get("role") == "admin"
     nav = [
-        ("stocks",  "📊", "Stocks"),
-        ("gold",    "🥇", "Gold"),
-        ("crypto",  "₿",  "Crypto"),
-        ("dca",     "📈", "DCA"),
-        ("signals", "🎯", "Signals"),
-        ("news",    "📰", "News"),
-        ("paper",   "🧪", "Paper Trade"),
-        ("ai",      "🤖", "AI Analysis"),
-        ("screener","🔭", "Screener"),
-        ("chat",    "💬", "Chat ArtheeNoi"),
+        ("stocks",   "📊", "Stocks"),
+        ("gold",     "🥇", "Gold"),
+        ("crypto",   "₿",  "Crypto"),
+        ("dca",      "📈", "DCA"),
+        ("signals",  "🎯", "Signals"),
+        ("news",     "📰", "News"),
+        ("paper",    "🧪", "Paper Trade"),
+        ("ai",       "🤖", "AI Analysis"),
+        ("screener", "🔭", "Screener"),
+        ("charts",   "📉", "Charts"),
+        ("alerts",   "🔔", "Alerts"),
+        ("calendar", "📅", "Calendar"),
+        ("options",  "⚙", "Options"),
+        ("chat",     "💬", "Chat ArtheeNoi"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -335,6 +339,117 @@ def _rsi_bar(rsi) -> str:
             f'<div style="font-size:11px;color:var(--mid);margin-bottom:2px">{rsi}</div>'
             f'<div class="rsi-bar"><div class="rsi-fill" style="width:{w}%;background:{color}"></div></div>'
             f'</div>')
+
+def _get_vault_sector(sym: str) -> str:
+    """Look up sector from VAULT for a symbol."""
+    try:
+        import at_stock_vault as v
+        for item in v.VAULT:
+            if item.get("t", "").upper() == sym.upper():
+                return item.get("s", "Other")
+    except Exception:
+        pass
+    return "Other"
+
+def _sector_allocation_html(port_rows: list, total_val: float) -> str:
+    """Build sector allocation horizontal bars."""
+    if not port_rows or total_val <= 0:
+        return ""
+    sectors: dict = {}
+    for r in port_rows:
+        sec = _get_vault_sector(r["sym"])
+        sectors[sec] = sectors.get(sec, 0) + r["val"]
+    sorted_sec = sorted(sectors.items(), key=lambda x: -x[1])
+    colors = ["var(--teal)","var(--blue)","var(--purple)","var(--gold)","var(--green)","var(--orange)","var(--red)"]
+    rows = ""
+    for i, (sec, val) in enumerate(sorted_sec):
+        pct = val / total_val * 100
+        col = colors[i % len(colors)]
+        rows += f"""<div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+            <span style="color:var(--mid)">{sec}</span>
+            <span style="color:var(--text);font-weight:700">${val:,.0f} <span style="color:var(--muted)">({pct:.0f}%)</span></span>
+          </div>
+          <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:{pct:.1f}%;background:{col};border-radius:3px;transition:width .4s"></div>
+          </div>
+        </div>"""
+    return f'<div class="card" style="margin-bottom:16px"><div class="card-hdr">🏭 Sector Allocation</div>{rows}</div>'
+
+def _portfolio_health_html(port_rows: list, total_val: float, total_cost: float) -> str:
+    """Compute and display portfolio health score 0-100."""
+    if not port_rows:
+        return ""
+    # --- Diversification (0-30) ---
+    sectors = set(_get_vault_sector(r["sym"]) for r in port_rows)
+    n_sec = len(sectors)
+    max_alloc = max((r["val"] / total_val * 100 for r in port_rows), default=0) if total_val else 0
+    div_score = min(n_sec * 5, 20)
+    if max_alloc > 40:
+        div_score -= 10
+    elif max_alloc > 60:
+        div_score -= 20
+    div_score = max(0, min(30, div_score))
+
+    # --- RSI health (0-25) ---
+    rsis = [r["rsi"] for r in port_rows if r.get("rsi") is not None]
+    avg_rsi = sum(rsis) / len(rsis) if rsis else 50
+    if 35 <= avg_rsi <= 65:
+        rsi_score = 25
+    elif 30 <= avg_rsi < 35 or 65 < avg_rsi <= 70:
+        rsi_score = 15
+    else:
+        rsi_score = 5
+    rsi_score = max(0, min(25, rsi_score))
+
+    # --- Momentum: % above MA20 (0-25) ---
+    above_ma20 = 0
+    for r in port_rows:
+        cl = r.get("closes", [])
+        ma20 = sum(cl[-20:]) / 20 if len(cl) >= 20 else None
+        if ma20 and r["price"] > ma20:
+            above_ma20 += 1
+    mom_pct = above_ma20 / len(port_rows) * 100 if port_rows else 50
+    mom_score = int(mom_pct / 100 * 25)
+
+    # --- P&L trend (0-20) ---
+    total_pnl = sum(r["pnl"] for r in port_rows)
+    pnl_pct = total_pnl / total_cost * 100 if total_cost else 0
+    if pnl_pct > 5:
+        pnl_score = 20
+    elif pnl_pct > 0:
+        pnl_score = 14
+    elif pnl_pct > -5:
+        pnl_score = 8
+    else:
+        pnl_score = 2
+
+    total_score = div_score + rsi_score + mom_score + pnl_score
+    if total_score >= 80:
+        emoji = "🟢"; grade = "Excellent"; col = "var(--green)"
+    elif total_score >= 60:
+        emoji = "🟡"; grade = "Good"; col = "var(--gold)"
+    elif total_score >= 40:
+        emoji = "🟠"; grade = "Fair"; col = "var(--orange)"
+    else:
+        emoji = "🔴"; grade = "Weak"; col = "var(--red)"
+
+    return f"""<div class="card" style="margin-bottom:16px;border-top:3px solid {col}">
+  <div class="card-hdr">💪 Portfolio Health</div>
+  <div style="display:flex;align-items:center;gap:20px">
+    <div style="text-align:center">
+      <div style="font-size:40px;font-weight:900;color:{col};line-height:1">{total_score}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">/100</div>
+      <div style="font-size:13px;font-weight:700;color:{col};margin-top:4px">{emoji} {grade}</div>
+    </div>
+    <div style="flex:1;font-size:12px;line-height:2;color:var(--mid)">
+      🏭 Diversification &nbsp;<b style="color:var(--text)">{div_score}/30</b> — {n_sec} sectors, max {max_alloc:.0f}% in one stock<br>
+      📊 RSI Health &nbsp;<b style="color:var(--text)">{rsi_score}/25</b> — avg RSI {avg_rsi:.0f}<br>
+      🚀 Momentum &nbsp;<b style="color:var(--text)">{mom_score}/25</b> — {above_ma20}/{len(port_rows)} stocks above MA20<br>
+      💰 P&L Trend &nbsp;<b style="color:var(--text)">{pnl_score}/20</b> — {'+' if pnl_pct>=0 else ''}{pnl_pct:.1f}% overall
+    </div>
+  </div>
+</div>"""
 
 def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
     port = user.get("portfolio", {})
@@ -486,6 +601,12 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
 
 <!-- ETF Cards -->
 <div class="g3" style="margin-bottom:16px">{etf_cards}</div>
+
+<!-- Portfolio Health + Sector Allocation -->
+<div class="g2" style="margin-bottom:16px">
+  <div>{_portfolio_health_html(port_rows, total_val, total_cost)}</div>
+  <div>{_sector_allocation_html(port_rows, total_val)}</div>
+</div>
 
 <!-- Portfolio -->
 <div class="card" style="margin-bottom:16px">
@@ -1924,7 +2045,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
           <td><span style="font-size:11px;color:var(--mid)">{e['s']}</span></td>
           <td><span style="color:{_TIER_COL.get(tier,'var(--mid)')};font-size:10px;font-weight:700">{_TIER_LABEL.get(tier,'')}</span></td>
           <td>{'$'+f'{price:,.2f}' if price else '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
-          <td><span style="color:{'var(--green)'if chg>=0 else 'var(--red)';font-size:12px}">{'+'if chg>=0 else ''}{chg:.2f if price else 0:.2f}%</span></td>
+          <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'};font-size:12px">{'+' if chg>=0 else ''}{chg:.2f if price else 0:.2f}%</span></td>
           <td>{_rsi_bar(rsi) if rsi else '<span style="color:var(--muted)">—</span>'}</td>
           <td style="font-size:11px;color:var(--muted)">{e.get('note','')[:40]}</td>
         </tr>"""
@@ -2111,16 +2232,20 @@ function filterSector(el, sec) {
 def _sidebar_html(user: dict, active: str) -> str:
     is_admin = user.get("role") == "admin"
     nav = [
-        ("stocks",  "📊", "Stocks"),
-        ("gold",    "🥇", "Gold"),
-        ("crypto",  "₿",  "Crypto"),
-        ("dca",     "📈", "DCA"),
-        ("signals", "🎯", "Signals"),
-        ("news",    "📰", "News"),
-        ("paper",   "🧪", "Paper Trade"),
-        ("ai",      "🤖", "AI Analysis"),
-        ("screener","🔭", "Screener"),
-        ("chat",    "💬", "Chat ArtheeNoi"),
+        ("stocks",   "📊", "Stocks"),
+        ("gold",     "🥇", "Gold"),
+        ("crypto",   "₿",  "Crypto"),
+        ("dca",      "📈", "DCA"),
+        ("signals",  "🎯", "Signals"),
+        ("news",     "📰", "News"),
+        ("paper",    "🧪", "Paper Trade"),
+        ("ai",       "🤖", "AI Analysis"),
+        ("screener", "🔭", "Screener"),
+        ("charts",   "📉", "Charts"),
+        ("alerts",   "🔔", "Alerts"),
+        ("calendar", "📅", "Calendar"),
+        ("options",  "⚙", "Options"),
+        ("chat",     "💬", "Chat ArtheeNoi"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -2137,6 +2262,659 @@ def _sidebar_html(user: dict, active: str) -> str:
       <a class="sb-link" href="/logout">🚪<span class="tip">Logout</span></a>
     </div>
   </nav>"""
+
+# ─── CHARTS PAGE ──────────────────────────────────────────────────────────────
+
+def _pearson(xs: list, ys: list) -> float | None:
+    """Pearson correlation between two equal-length lists."""
+    n = len(xs)
+    if n < 5:
+        return None
+    mx = sum(xs) / n; my = sum(ys) / n
+    num = sum((xs[i]-mx)*(ys[i]-my) for i in range(n))
+    dx  = sum((xs[i]-mx)**2 for i in range(n)) ** 0.5
+    dy  = sum((ys[i]-my)**2 for i in range(n)) ** 0.5
+    return round(num/(dx*dy), 2) if dx*dy else None
+
+def _daily_returns(closes: list) -> list:
+    if len(closes) < 2:
+        return []
+    return [round((closes[i]-closes[i-1])/closes[i-1]*100, 4)
+            for i in range(1, len(closes))]
+
+def charts_page(user: dict, market_data: dict, thb: float) -> str:
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    all_syms  = list(port.keys()) + [s for s in watchlist if s not in port]
+
+    # Stat cards
+    total_val = total_cost = 0
+    best_sym = best_chg = None
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        if not d.get("price"): continue
+        val = d["price"] * float(info.get("shares",1))
+        ct  = float(info.get("cost",0)) * float(info.get("shares",1))
+        total_val  += val
+        total_cost += ct
+        chg = d.get("chg",0)
+        if best_chg is None or chg > best_chg:
+            best_chg = chg; best_sym = sym
+    total_pnl = total_val - total_cost
+    pnl_col = "pos" if total_pnl >= 0 else "neg"
+    pnl_sign = "+" if total_pnl >= 0 else ""
+
+    # Donut data
+    donut_labels = []; donut_vals = []; donut_colors = []
+    _palette = ["#2dd4bf","#3b82f6","#8b5cf6","#f59e0b","#22c55e","#f97316","#ef4444","#ec4899","#64748b","#0ea5e9"]
+    for i, (sym, info) in enumerate(port.items()):
+        d = market_data.get(sym, {})
+        if not d.get("price"): continue
+        donut_labels.append(sym)
+        donut_vals.append(round(d["price"] * float(info.get("shares",1)),2))
+        donut_colors.append(_palette[i % len(_palette)])
+
+    # 30-day P&L line from closes
+    pnl_days = []; pnl_vals_30 = []
+    n_days = 30
+    port_closes: dict = {}
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        cl = d.get("closes", [])
+        if cl:
+            port_closes[sym] = (cl, float(info.get("shares",1)))
+    if port_closes:
+        max_len = max(len(v[0]) for v in port_closes.values())
+        for i in range(max(0, max_len - n_days), max_len):
+            day_val = sum(
+                closes[i] * shares
+                for closes, shares in port_closes.values()
+                if i < len(closes)
+            )
+            pnl_days.append(str(max_len - n_days + len(pnl_days) + 1))
+            pnl_vals_30.append(round(day_val, 2))
+
+    # Correlation heatmap (portfolio stocks 30-day returns)
+    port_syms = [s for s in port if market_data.get(s, {}).get("closes")]
+    corr_matrix = {}
+    returns_map: dict = {}
+    for sym in port_syms:
+        cl = market_data[sym]["closes"][-31:]
+        returns_map[sym] = _daily_returns(cl)
+    corr_html = ""
+    if len(port_syms) > 1:
+        corr_html = '<div style="overflow-x:auto"><table class="tbl" style="min-width:100%">'
+        corr_html += "<thead><tr><th></th>"
+        for s in port_syms:
+            corr_html += f"<th style='text-align:center'>{s}</th>"
+        corr_html += "</tr></thead><tbody>"
+        for r in port_syms:
+            corr_html += f"<tr><td class='sym'>{r}</td>"
+            for c in port_syms:
+                if r == c:
+                    val = 1.0; bg = "#2dd4bf22"; txt = "#2dd4bf"
+                else:
+                    rv = returns_map.get(r, []); cv = returns_map.get(c, [])
+                    mn = min(len(rv), len(cv))
+                    v = _pearson(rv[:mn], cv[:mn])
+                    val = v if v is not None else 0
+                    if val > 0.3:
+                        bg = f"#22c55e{int(abs(val)*40+20):02x}"; txt = "#22c55e"
+                    elif val < -0.3:
+                        bg = f"#ef4444{int(abs(val)*40+20):02x}"; txt = "#ef4444"
+                    else:
+                        bg = "transparent"; txt = "var(--mid)"
+                corr_html += (f'<td style="text-align:center;background:{bg};'
+                              f'color:{txt};font-weight:700;font-size:12px">'
+                              f'{val:.2f}</td>')
+            corr_html += "</tr>"
+        corr_html += "</tbody></table></div>"
+
+    sym_opts = "".join(f'<option value="{s}">{s}</option>' for s in all_syms)
+    default_sym = all_syms[0] if all_syms else "NVDA"
+    stat_cards = f"""
+<div class="g3" style="margin-bottom:16px">
+  <div class="card-sm"><div class="card-hdr">Portfolio Value</div>
+    <div class="stat-val">${total_val:,.0f}</div>
+    <div class="stat-lbl">฿{total_val*thb:,.0f}</div></div>
+  <div class="card-sm"><div class="card-hdr">Total P&L</div>
+    <div class="stat-val {pnl_col}">{pnl_sign}${total_pnl:,.0f}</div>
+    <div class="stat-lbl {pnl_col}">{pnl_sign}{total_pnl/total_cost*100:.1f}%</div></div>
+  <div class="card-sm"><div class="card-hdr">Best Today</div>
+    <div class="stat-val teal-c">{best_sym or '—'}</div>
+    <div class="stat-lbl pos">+{best_chg:.2f}%</div></div>
+</div>"""
+
+    html = f"""
+{stat_cards}
+<div class="g2" style="margin-bottom:16px">
+  <!-- Donut -->
+  <div class="card">
+    <div class="card-hdr">🍩 Portfolio Allocation</div>
+    <div style="position:relative;height:220px;display:flex;justify-content:center">
+      <canvas id="donutChart"></canvas>
+    </div>
+  </div>
+  <!-- P&L Line -->
+  <div class="card">
+    <div class="card-hdr">📈 30-Day Portfolio Value</div>
+    <div style="position:relative;height:220px">
+      <canvas id="pnlChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Stock Price Chart -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr" style="display:flex;align-items:center;gap:12px">
+    📉 Stock Chart
+    <select id="symSelect" onchange="loadChart(this.value)"
+      style="background:var(--card2);border:1px solid var(--border);border-radius:6px;
+             color:var(--text);padding:5px 10px;font-size:12px;cursor:pointer">
+      {sym_opts}
+    </select>
+    <span id="chartLoading" style="color:var(--muted);font-size:11px"></span>
+  </div>
+  <div style="position:relative;height:200px;margin-bottom:8px">
+    <canvas id="priceChart"></canvas>
+  </div>
+  <div style="position:relative;height:80px">
+    <canvas id="rsiChart"></canvas>
+  </div>
+</div>
+
+<!-- Correlation Heatmap -->
+<div class="card">
+  <div class="card-hdr">🔗 Correlation Heatmap (30-day returns)</div>
+  {corr_html or '<div style="color:var(--muted)">ต้องมีหุ้นใน portfolio อย่างน้อย 2 ตัว</div>'}
+</div>
+"""
+
+    js = f"""
+// Donut
+new Chart(document.getElementById('donutChart'), {{
+  type: 'doughnut',
+  data: {{
+    labels: {json.dumps(donut_labels)},
+    datasets: [{{ data: {json.dumps(donut_vals)}, backgroundColor: {json.dumps(donut_colors)},
+      borderColor: 'var(--bg)', borderWidth: 2 }}]
+  }},
+  options: {{ responsive:true, maintainAspectRatio:false,
+    plugins: {{ legend:{{position:'right',labels:{{color:'#9999a8',font:{{size:11}},boxWidth:12}}}},
+               tooltip:{{callbacks:{{label:(c)=>c.label+': $'+c.parsed.toLocaleString()}}}} }} }}
+}});
+
+// P&L Line
+new Chart(document.getElementById('pnlChart'), {{
+  type: 'line',
+  data: {{
+    labels: {json.dumps(pnl_days)},
+    datasets: [{{
+      label: 'Portfolio Value',
+      data: {json.dumps(pnl_vals_30)},
+      borderColor: '#2dd4bf', borderWidth: 2, pointRadius: 0, fill: true,
+      backgroundColor: ctx => {{
+        const g = ctx.chart.ctx.createLinearGradient(0,0,0,200);
+        g.addColorStop(0,'#2dd4bf33'); g.addColorStop(1,'#2dd4bf00'); return g;
+      }}
+    }}]
+  }},
+  options: {{ responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:(c)=>'$'+c.parsed.y.toLocaleString()}}}}}},
+    scales:{{ x:{{display:false}}, y:{{grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:10}}}}}} }} }}
+}});
+
+// Price Chart
+let priceChart, rsiChart;
+function loadChart(sym) {{
+  document.getElementById('chartLoading').textContent = 'กำลังโหลด...';
+  fetch('/api/chart/' + sym).then(r=>r.json()).then(d => {{
+    document.getElementById('chartLoading').textContent = '';
+    if (priceChart) priceChart.destroy();
+    if (rsiChart)   rsiChart.destroy();
+    const closes = d.closes || [];
+    const dates  = d.dates  || closes.map((_,i)=>i+1);
+    // MA20 / MA50
+    const ma20 = closes.map((_,i) => i>=19 ? closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20 : null);
+    const ma50 = closes.map((_,i) => i>=49 ? closes.slice(i-49,i+1).reduce((a,b)=>a+b,0)/50 : null);
+    priceChart = new Chart(document.getElementById('priceChart'), {{
+      type: 'line',
+      data: {{
+        labels: dates,
+        datasets: [
+          {{ label: sym, data: closes, borderColor: '#3b82f6', borderWidth: 1.5,
+             pointRadius: 0, fill: false }},
+          {{ label: 'MA20', data: ma20, borderColor: '#f59e0b', borderWidth: 1,
+             pointRadius: 0, fill: false, borderDash:[4,2], spanGaps:true }},
+          {{ label: 'MA50', data: ma50, borderColor: '#2dd4bf', borderWidth: 1,
+             pointRadius: 0, fill: false, borderDash:[8,4], spanGaps:true }},
+          {{ label: 'Volume', data: d.volumes||[], type:'bar',
+             backgroundColor: '#3b82f620', yAxisID:'y2', order:10 }}
+        ]
+      }},
+      options: {{ responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{{legend:{{labels:{{color:'#9999a8',font:{{size:11}}}}}}}},
+        scales:{{
+          x:{{display:false}},
+          y:{{grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:10}}}}}},
+          y2:{{position:'right',grid:{{display:false}},ticks:{{display:false}}}}
+        }}
+      }}
+    }});
+    // RSI
+    const rsiVals = d.rsi || [];
+    rsiChart = new Chart(document.getElementById('rsiChart'), {{
+      type: 'line',
+      data: {{
+        labels: dates.slice(-rsiVals.length),
+        datasets: [{{ label:'RSI', data:rsiVals, borderColor:'#8b5cf6', borderWidth:1.5,
+                      pointRadius:0, fill:false }}]
+      }},
+      options: {{
+        responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{{legend:{{display:false}}}},
+        scales:{{
+          x:{{display:false}},
+          y:{{min:0,max:100,grid:{{color:'#252530'}},ticks:{{color:'#9999a8',font:{{size:9}},
+               callback:(v)=>v===70?'OB ':v===30?'OS ':v===50?'50':''}}}}
+        }}
+      }}
+    }});
+  }}).catch(()=>{{ document.getElementById('chartLoading').textContent='Error'; }});
+}}
+loadChart('{default_sym}');
+"""
+    return _base("charts", "Charts", html, user, "", js)
+
+
+# ─── ALERTS PAGE ──────────────────────────────────────────────────────────────
+
+def alerts_page(user: dict, market_data: dict) -> str:
+    alerts = user.get("alerts", [])
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    all_syms = list(port.keys()) + [s for s in watchlist if s not in port]
+
+    active_alerts   = [a for a in alerts if a.get("active") and not a.get("triggered_at")]
+    triggered_alerts= [a for a in reversed(alerts) if a.get("triggered_at")][:10]
+
+    # Active alerts table
+    act_rows = ""
+    for a in active_alerts:
+        d = market_data.get(a["sym"], {})
+        cur = d.get("price", 0)
+        cond_map = {"above": "ราคา >", "below": "ราคา <", "change_pct": "Chg% >"}
+        cond_lbl = cond_map.get(a.get("condition","above"), a.get("condition",""))
+        hit = False
+        if a.get("condition") == "above" and cur >= a.get("price",0): hit = True
+        elif a.get("condition") == "below" and cur <= a.get("price",0): hit = True
+        elif a.get("condition") == "change_pct":
+            chg = abs(d.get("chg",0))
+            if chg >= a.get("price",0): hit = True
+        status_html = ('<span style="color:var(--gold);font-weight:700">⚡ Close!</span>'
+                       if hit else '<span style="color:var(--muted)">⏳ Watching</span>')
+        act_rows += f"""
+        <tr>
+          <td class="sym">{a['sym']}</td>
+          <td style="color:var(--mid)">{cond_lbl}</td>
+          <td style="font-weight:700">${a.get('price',0):,.2f}</td>
+          <td class="{'pos' if cur>0 else ''}">${cur:,.2f}</td>
+          <td>{a.get('note','—') or '—'}</td>
+          <td>{status_html}</td>
+          <td>
+            <form method="POST" action="/alerts/toggle" style="display:inline">
+              <input type="hidden" name="alert_id" value="{a['id']}">
+              <button class="btn btn-ghost btn-sm" type="submit">⏸ Pause</button>
+            </form>
+            <form method="POST" action="/alerts/delete" style="display:inline;margin-left:4px">
+              <input type="hidden" name="alert_id" value="{a['id']}">
+              <button class="btn btn-sm" style="background:#ef444422;color:#ef4444;border:1px solid #ef444444" type="submit">✕</button>
+            </form>
+          </td>
+        </tr>"""
+
+    # Triggered history
+    trig_rows = ""
+    for a in triggered_alerts:
+        trig_rows += f"""
+        <tr>
+          <td class="sym">{a['sym']}</td>
+          <td style="color:var(--mid)">{a.get('condition','')}</td>
+          <td>${a.get('price',0):,.2f}</td>
+          <td style="color:var(--muted);font-size:11px">{a.get('triggered_at','')}</td>
+          <td style="color:var(--muted)">{a.get('note','') or '—'}</td>
+        </tr>"""
+
+    sym_opts = "".join(f'<option value="{s}">{s}</option>' for s in all_syms)
+
+    # Paused alerts
+    paused = [a for a in alerts if not a.get("active") and not a.get("triggered_at")]
+    paused_html = ""
+    for a in paused:
+        paused_html += f"""
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--bl)">
+          <span class="sym">{a['sym']}</span>
+          <span style="color:var(--muted);font-size:12px">{a.get('condition','')} ${a.get('price',0):.2f}</span>
+          <span style="flex:1"></span>
+          <form method="POST" action="/alerts/toggle" style="display:inline">
+            <input type="hidden" name="alert_id" value="{a['id']}">
+            <button class="btn btn-ghost btn-sm" type="submit">▶ Resume</button>
+          </form>
+          <form method="POST" action="/alerts/delete" style="display:inline">
+            <input type="hidden" name="alert_id" value="{a['id']}">
+            <button class="btn btn-sm" style="background:#ef444422;color:#ef4444;border:1px solid #ef444444" type="submit">✕</button>
+          </form>
+        </div>"""
+
+    html = f"""
+<!-- Add Alert -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">➕ ตั้ง Alert ใหม่</div>
+  <form method="POST" action="/alerts/add" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbol</div>
+      <select name="sym" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px;font-size:12px">{sym_opts}</select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">เงื่อนไข</div>
+      <select name="condition" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px;font-size:12px">
+        <option value="above">ราคา > (Price above)</option>
+        <option value="below">ราคา &lt; (Price below)</option>
+        <option value="change_pct">Daily change &gt;%</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ราคาเป้าหมาย</div>
+      <input type="number" name="price" step="0.01" min="0" placeholder="0.00"
+        style="width:110px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px;font-size:12px">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Note (ไม่บังคับ)</div>
+      <input type="text" name="note" placeholder="หมายเหตุ..."
+        style="width:160px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px;font-size:12px">
+    </div>
+    <button type="submit" class="btn btn-primary">🔔 เพิ่ม Alert</button>
+  </form>
+</div>
+
+<!-- Active Alerts -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">🔔 Active Alerts ({len(active_alerts)})</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>เงื่อนไข</th><th>Target</th><th>ราคาปัจจุบัน</th><th>Note</th><th>Status</th><th></th></tr></thead>
+      <tbody>{act_rows or '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มี alert — เพิ่มด้านบน</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Paused -->
+{f'<div class="card" style="margin-bottom:16px"><div class="card-hdr">⏸ Paused ({len(paused)})</div>{paused_html}</div>' if paused else ''}
+
+<!-- Triggered History -->
+<div class="card">
+  <div class="card-hdr">⚡ Triggered History (ล่าสุด 10)</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>เงื่อนไข</th><th>Target</th><th>เวลา</th><th>Note</th></tr></thead>
+      <tbody>{trig_rows or '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มี triggered alerts</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+"""
+    return _base("alerts", "Price Alerts", html, user)
+
+
+# ─── CALENDAR PAGE ────────────────────────────────────────────────────────────
+
+# Hardcoded US economic events (next 3 months from mid-2026)
+_ECON_EVENTS = [
+    {"date": "2026-07-29", "event": "FOMC Meeting", "type": "fed"},
+    {"date": "2026-07-10", "event": "CPI Report (June)", "type": "cpi"},
+    {"date": "2026-08-12", "event": "CPI Report (July)", "type": "cpi"},
+    {"date": "2026-09-16", "event": "FOMC Meeting", "type": "fed"},
+    {"date": "2026-09-10", "event": "CPI Report (August)", "type": "cpi"},
+    {"date": "2026-10-07", "event": "CPI Report (September)", "type": "cpi"},
+    {"date": "2026-11-04", "event": "FOMC Meeting", "type": "fed"},
+]
+
+def _fetch_earnings(syms: list) -> list:
+    """Fetch earnings dates via yfinance .calendar attribute."""
+    results = []
+    try:
+        import yfinance as yf
+        for sym in syms:
+            try:
+                t = yf.Ticker(sym)
+                cal = t.calendar
+                # cal can be a dict or DataFrame
+                if cal is None:
+                    continue
+                if hasattr(cal, "get"):
+                    ed = cal.get("Earnings Date")
+                    if isinstance(ed, list) and ed:
+                        ed = ed[0]
+                    eps = cal.get("EPS Estimate")
+                    rev = cal.get("Revenue Estimate")
+                else:
+                    try:
+                        ed  = cal.loc["Earnings Date"].iloc[0] if "Earnings Date" in cal.index else None
+                        eps = cal.loc["EPS Estimate"].iloc[0]  if "EPS Estimate" in cal.index else None
+                        rev = cal.loc["Revenue Estimate"].iloc[0] if "Revenue Estimate" in cal.index else None
+                    except Exception:
+                        ed = eps = rev = None
+                if ed:
+                    if hasattr(ed, "date"):
+                        ed = ed.date()
+                    results.append({
+                        "sym": sym, "date": str(ed)[:10],
+                        "eps": f"${eps:.2f}" if eps and not (hasattr(eps,"__float__") and math.isnan(float(eps))) else "—",
+                        "rev": f"${rev/1e9:.1f}B" if rev and not (hasattr(rev,"__float__") and math.isnan(float(rev))) else "—",
+                    })
+            except Exception:
+                pass
+    except ImportError:
+        pass
+    return results
+
+def calendar_page(user: dict, market_data: dict) -> str:
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    syms = list(port.keys()) + [s for s in watchlist if s not in port]
+    syms = [s for s in syms if "=" not in s and "BTC" not in s]
+
+    earnings = _fetch_earnings(syms[:20])  # limit to 20 to avoid timeout
+    today = datetime.now().date()
+
+    # Add days_away
+    rows = []
+    for e in earnings:
+        try:
+            ed = datetime.strptime(e["date"], "%Y-%m-%d").date()
+            days_away = (ed - today).days
+            e["days_away"] = days_away
+            rows.append(e)
+        except Exception:
+            pass
+    rows.sort(key=lambda x: x.get("days_away", 9999))
+
+    earn_html = ""
+    for e in rows:
+        da = e.get("days_away", 0)
+        if da < 0:
+            col = "var(--muted)"; badge = "ผ่านแล้ว"
+        elif da <= 7:
+            col = "var(--red)"; badge = f"⚠️ {da} วัน!"
+        elif da <= 30:
+            col = "var(--gold)"; badge = f"🟡 {da} วัน"
+        else:
+            col = "var(--green)"; badge = f"🟢 {da} วัน"
+        earn_html += f"""
+        <tr>
+          <td class="sym">{e['sym']}</td>
+          <td style="color:var(--mid)">{e['date']}</td>
+          <td style="color:var(--text)">{e['eps']}</td>
+          <td style="color:var(--text)">{e['rev']}</td>
+          <td><span style="color:{col};font-weight:700;font-size:12px">{badge}</span></td>
+        </tr>"""
+
+    econ_html = ""
+    for ev in _ECON_EVENTS:
+        try:
+            ed = datetime.strptime(ev["date"], "%Y-%m-%d").date()
+            da = (ed - today).days
+        except Exception:
+            da = 999
+        if da < 0:
+            col = "var(--muted)"; badge = "ผ่านแล้ว"
+        elif da <= 7:
+            col = "var(--red)"; badge = f"⚠️ {da} วัน"
+        elif da <= 30:
+            col = "var(--gold)"; badge = f"🟡 {da} วัน"
+        else:
+            col = "var(--green)"; badge = f"🟢 {da} วัน"
+        icon = "🏛️" if ev["type"] == "fed" else "📊"
+        econ_html += f"""
+        <tr>
+          <td><span style="font-size:16px">{icon}</span></td>
+          <td style="font-weight:700;color:var(--text)">{ev['event']}</td>
+          <td style="color:var(--mid)">{ev['date']}</td>
+          <td><span style="color:{col};font-weight:700;font-size:12px">{badge}</span></td>
+        </tr>"""
+
+    html = f"""
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">📅 Earnings Calendar — Portfolio + Watchlist</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>Earnings Date</th><th>EPS Estimate</th><th>Revenue</th><th>Days Away</th></tr></thead>
+      <tbody>{earn_html or '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">กำลังโหลดข้อมูล earnings...</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-hdr">🏛️ Economic Events (3 เดือนข้างหน้า)</div>
+  <table class="tbl">
+    <thead><tr><th></th><th>Event</th><th>Date</th><th>Days Away</th></tr></thead>
+    <tbody>{econ_html}</tbody>
+  </table>
+</div>
+"""
+    return _base("calendar", "Earnings Calendar", html, user)
+
+
+# ─── OPTIONS PAGE ─────────────────────────────────────────────────────────────
+
+def options_page(user: dict, market_data: dict, sym: str | None = None) -> str:
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    all_syms = [s for s in list(port.keys()) + watchlist
+                if "=" not in s and "BTC" not in s]
+    if not sym:
+        sym = all_syms[0] if all_syms else "AAPL"
+
+    cur_price = (market_data.get(sym) or {}).get("price", 0)
+    sym_opts  = "".join(
+        f'<option value="{s}" {"selected" if s==sym else ""}>{s}</option>'
+        for s in all_syms
+    )
+    expiry_tabs = '<div id="expiryTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>'
+
+    html = f"""
+<div class="card-hdr" style="margin-bottom:8px">Select Stock</div>
+<form method="GET" style="margin-bottom:16px;display:flex;gap:10px;align-items:center">
+  <select name="sym" onchange="this.form.submit()"
+    style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 14px;font-size:13px;cursor:pointer">
+    {sym_opts}
+  </select>
+  <span style="color:var(--mid);font-size:13px">ราคาปัจจุบัน: <b style="color:var(--text)">${cur_price:,.2f}</b></span>
+</form>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">⚙ Options Chain — <span id="chainSym">{sym}</span></div>
+  {expiry_tabs}
+  <div id="chainLoading" style="color:var(--muted);padding:16px">กำลังโหลด options chain...</div>
+  <div id="chainContent" style="display:none">
+    <div class="g2" style="gap:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📞 Calls</div>
+        <div style="overflow-x:auto"><table class="tbl" id="callsTable">
+          <thead><tr><th>Strike</th><th>Last</th><th>Bid</th><th>Ask</th><th>Vol</th><th>OI</th><th>IV</th><th>ITM</th></tr></thead>
+          <tbody id="callsBody"></tbody>
+        </table></div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📤 Puts</div>
+        <div style="overflow-x:auto"><table class="tbl" id="putsTable">
+          <thead><tr><th>Strike</th><th>Last</th><th>Bid</th><th>Ask</th><th>Vol</th><th>OI</th><th>IV</th><th>ITM</th></tr></thead>
+          <tbody id="putsBody"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+    js = f"""
+const CUR = {cur_price};
+const SYM = '{sym}';
+let expiries = [];
+
+function loadExpiries() {{
+  fetch('/api/options/' + SYM).then(r=>r.json()).then(d => {{
+    expiries = d.expiries || [];
+    const tabs = document.getElementById('expiryTabs');
+    tabs.innerHTML = '';
+    expiries.slice(0,8).forEach((exp,i) => {{
+      const b = document.createElement('button');
+      b.className = 'chip' + (i===0?' active':'');
+      b.textContent = exp;
+      b.onclick = () => {{ document.querySelectorAll('#expiryTabs .chip').forEach(x=>x.classList.remove('active'));
+                           b.classList.add('active'); loadChain(exp); }};
+      tabs.appendChild(b);
+    }});
+    if (expiries.length) loadChain(expiries[0]);
+  }}).catch(() => {{
+    document.getElementById('chainLoading').textContent = 'ไม่สามารถโหลด options ได้';
+  }});
+}}
+
+function loadChain(exp) {{
+  document.getElementById('chainLoading').style.display='block';
+  document.getElementById('chainContent').style.display='none';
+  fetch('/api/options/' + SYM + '?exp=' + exp).then(r=>r.json()).then(d => {{
+    document.getElementById('chainLoading').style.display='none';
+    document.getElementById('chainContent').style.display='block';
+    renderTable('callsBody', d.calls||[], 'call');
+    renderTable('putsBody', d.puts||[], 'put');
+  }}).catch(() => {{ document.getElementById('chainLoading').textContent='Error loading chain'; }});
+}}
+
+function renderTable(tbodyId, rows, side) {{
+  const tb = document.getElementById(tbodyId);
+  tb.innerHTML = '';
+  rows.forEach(r => {{
+    const itm = side==='call' ? r.strike < CUR : r.strike > CUR;
+    const bg  = itm ? 'background:#2dd4bf10;' : '';
+    const itm_badge = itm ? '<span style="color:var(--teal);font-weight:700;font-size:10px">ITM</span>' : '<span style="color:var(--muted);font-size:10px">OTM</span>';
+    tb.innerHTML += '<tr style="' + bg + '">'
+      + '<td style="font-weight:700">$' + (r.strike||0).toFixed(2) + '</td>'
+      + '<td>$' + (r.lastPrice||0).toFixed(2) + '</td>'
+      + '<td style="color:var(--green)">$' + (r.bid||0).toFixed(2) + '</td>'
+      + '<td style="color:var(--red)">$' + (r.ask||0).toFixed(2) + '</td>'
+      + '<td style="color:var(--mid)">' + (r.volume||0).toLocaleString() + '</td>'
+      + '<td style="color:var(--mid)">' + (r.openInterest||0).toLocaleString() + '</td>'
+      + '<td>' + ((r.impliedVolatility||0)*100).toFixed(0) + '%</td>'
+      + '<td>' + itm_badge + '</td>'
+      + '</tr>';
+  }});
+}}
+
+loadExpiries();
+"""
+    return _base("options", f"Options Chain — {sym}", html, user, "", js)
+
 
 LOADING_PAGE = """<!DOCTYPE html>
 <html lang="th">

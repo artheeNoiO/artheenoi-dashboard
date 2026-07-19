@@ -1239,6 +1239,177 @@ def admin_refresh_market():
         t.start()
     return redirect("/admin?msg=เริ่ม+refresh+ข้อมูลตลาดแล้ว+รอ+2-3+นาที&mt=ok")
 
+# ─── Charts ───────────────────────────────────────────────────────────────────
+
+@app.route("/charts")
+@login_required
+def charts():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, _, thb = _get_mkt()
+    user = get_user(session["username"])
+    return dw.charts_page(user, mkt, thb)
+
+@app.route("/api/chart/<sym>")
+@login_required
+def api_chart(sym):
+    sym = sym.upper()
+    try:
+        import yfinance as yf
+        import warnings; warnings.filterwarnings("ignore")
+        t = yf.Ticker(sym)
+        hist = t.history(period="6mo", interval="1d")
+        if hist.empty:
+            return jsonify({"error": "no data"})
+        closes  = [round(float(c), 4) for c in hist["Close"].dropna()]
+        opens   = [round(float(c), 4) for c in hist["Open"].dropna()]
+        highs   = [round(float(c), 4) for c in hist["High"].dropna()]
+        lows    = [round(float(c), 4) for c in hist["Low"].dropna()]
+        volumes = [int(v) for v in hist["Volume"].fillna(0)]
+        dates   = [str(d.date()) for d in hist.index]
+        # RSI
+        from dashboard_web import _calc_rsi
+        rsi_series = []
+        for i in range(14, len(closes)):
+            r = _calc_rsi(closes[:i+1])
+            if r is not None:
+                rsi_series.append(r)
+        return jsonify({"dates": dates, "closes": closes, "opens": opens,
+                        "highs": highs, "lows": lows, "volumes": volumes,
+                        "rsi": rsi_series})
+    except Exception as e:
+        log.warning(f"[api/chart/{sym}] {e}")
+        return jsonify({"error": str(e)})
+
+# ─── Alerts ───────────────────────────────────────────────────────────────────
+
+@app.route("/alerts")
+@login_required
+def alerts():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.alerts_page(user, mkt)
+
+@app.route("/alerts/add", methods=["POST"])
+@login_required
+def alerts_add():
+    uname = session["username"]
+    sym   = request.form.get("sym", "").upper().strip()
+    cond  = request.form.get("condition", "above")
+    try:
+        price = float(request.form.get("price", 0) or 0)
+    except (ValueError, TypeError):
+        price = 0.0
+    note  = request.form.get("note", "").strip()
+    if not sym or not price:
+        return redirect("/alerts")
+    with _users_lock:
+        users = load_users()
+        user  = users.get(uname, {})
+        alerts_list = user.get("alerts", [])
+        new_id = max((a.get("id", 0) for a in alerts_list), default=0) + 1
+        alerts_list.append({
+            "id": new_id, "sym": sym, "condition": cond, "price": price,
+            "note": note, "active": True,
+            "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "triggered_at": None,
+        })
+        user["alerts"] = alerts_list
+        users[uname] = user
+        save_users(users)
+    return redirect("/alerts")
+
+@app.route("/alerts/delete", methods=["POST"])
+@login_required
+def alerts_delete():
+    uname    = session["username"]
+    alert_id = int(request.form.get("alert_id", 0))
+    with _users_lock:
+        users = load_users()
+        user  = users.get(uname, {})
+        user["alerts"] = [a for a in user.get("alerts", []) if a.get("id") != alert_id]
+        users[uname] = user
+        save_users(users)
+    return redirect("/alerts")
+
+@app.route("/alerts/toggle", methods=["POST"])
+@login_required
+def alerts_toggle():
+    uname    = session["username"]
+    alert_id = int(request.form.get("alert_id", 0))
+    with _users_lock:
+        users = load_users()
+        user  = users.get(uname, {})
+        for a in user.get("alerts", []):
+            if a.get("id") == alert_id:
+                a["active"] = not a.get("active", True)
+                break
+        users[uname] = user
+        save_users(users)
+    return redirect("/alerts")
+
+# ─── Calendar ─────────────────────────────────────────────────────────────────
+
+@app.route("/calendar")
+@login_required
+def calendar():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.calendar_page(user, mkt)
+
+# ─── Options ──────────────────────────────────────────────────────────────────
+
+@app.route("/options")
+@app.route("/options/<sym>")
+@login_required
+def options(sym=None):
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    sym  = (sym or request.args.get("sym", "")).upper() or None
+    return dw.options_page(user, mkt, sym)
+
+@app.route("/api/options/<sym>")
+@login_required
+def api_options(sym):
+    sym = sym.upper()
+    exp = request.args.get("exp", "")
+    try:
+        import yfinance as yf
+        import warnings; warnings.filterwarnings("ignore")
+        t = yf.Ticker(sym)
+        expiries = list(t.options) if t.options else []
+        if not exp or exp not in expiries:
+            return jsonify({"expiries": expiries, "calls": [], "puts": []})
+        chain = t.option_chain(exp)
+        def _tbl(df):
+            cols = ["strike","lastPrice","bid","ask","volume","openInterest","impliedVolatility"]
+            rows = []
+            for _, row in df.iterrows():
+                r = {}
+                for c in cols:
+                    try:
+                        v = row.get(c)
+                        if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                            r[c] = float(v)
+                        else:
+                            r[c] = 0
+                    except Exception:
+                        r[c] = 0
+                rows.append(r)
+            return rows
+        return jsonify({
+            "expiries": expiries,
+            "calls": _tbl(chain.calls),
+            "puts":  _tbl(chain.puts),
+        })
+    except Exception as e:
+        log.warning(f"[api/options/{sym}] {e}")
+        return jsonify({"error": str(e), "expiries": [], "calls": [], "puts": []})
+
 @app.route("/ping")
 def ping():
     """UptimeRobot keep-alive endpoint — ไม่ต้อง login"""

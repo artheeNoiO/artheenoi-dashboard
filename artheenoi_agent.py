@@ -366,6 +366,64 @@ Portfolio สรุป:
                 f"• ตรวจ portfolio และ news ก่อนเทรดครับ")
     return text
 
+# ─── Price Alerts (User-defined) ──────────────────────────────────────────────
+
+def check_price_alerts(users_fn, mkt: dict):
+    """
+    ตรวจสอบ alert ที่ user ตั้งไว้กับราคาตลาดปัจจุบัน
+    - เมื่อ alert triggered → ส่ง Telegram + mark triggered_at
+    - คืน list of messages ที่ triggered
+    """
+    triggered_msgs = []
+    try:
+        from pathlib import Path
+        import json as _json
+        users_path = BASE / "dashboard_users.json"
+        if not users_path.exists():
+            return []
+        with open(users_path, encoding="utf-8") as f:
+            users = _json.load(f)
+        changed = False
+        for uname, user in users.items():
+            alerts_list = user.get("alerts", [])
+            for a in alerts_list:
+                if not a.get("active") or a.get("triggered_at"):
+                    continue
+                sym = a.get("sym", "")
+                d   = mkt.get(sym, {})
+                if not d.get("price"):
+                    continue
+                cur_price = d["price"]
+                chg       = d.get("chg", 0)
+                target    = float(a.get("price", 0))
+                cond      = a.get("condition", "above")
+                hit = False
+                if cond == "above" and cur_price >= target:
+                    hit = True
+                elif cond == "below" and cur_price <= target:
+                    hit = True
+                elif cond == "change_pct" and abs(chg) >= target:
+                    hit = True
+                if hit:
+                    now_str = _now_bkk().strftime("%Y-%m-%d %H:%M")
+                    a["triggered_at"] = now_str
+                    a["active"] = False
+                    changed = True
+                    msg = (f"🔔 <b>Price Alert!</b> [{uname}]\n"
+                           f"<b>{sym}</b> — {cond} ${target:,.2f}\n"
+                           f"ราคาตอนนี้: ${cur_price:,.2f} ({chg:+.2f}%)\n"
+                           f"Note: {a.get('note','') or '—'}\n"
+                           f"⏰ {now_str} BKK")
+                    triggered_msgs.append(msg)
+                    log.info(f"[Alert] {uname}/{sym} triggered ({cond} {target})")
+        if changed:
+            with open(users_path, "w", encoding="utf-8") as f:
+                _json.dump(users, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        log.warning(f"[PriceAlerts] error: {e}")
+    return triggered_msgs
+
+
 # ─── Main Agent Loop ──────────────────────────────────────────────────────────
 
 def run_agent(users_fn, mkt_fn):
@@ -403,12 +461,21 @@ def run_agent(users_fn, mkt_fn):
             if now_unix - last_hour_run >= HOURLY_SEC and mkt:
                 log.info(f"[Agent] Hourly run at {now.strftime('%H:%M')}")
 
-                # Signal change detection
+                # Signal change detection (RSI bucket changes)
                 alerts = _check_signals(mkt, users_fn)
                 for a in alerts:
                     if _tg_send(f"🔔 <b>ArtheeNoi Alert</b>\n{a}"):
                         log.info(f"[Telegram] Sent alert: {a[:50]}")
                     _log_alert(a[:80])
+
+                # User-defined price alerts
+                try:
+                    price_alerts = check_price_alerts(users_fn, mkt)
+                    for pa in price_alerts:
+                        _tg_send(pa)
+                        _log_alert(pa[:80])
+                except Exception as _pe:
+                    log.warning(f"[PriceAlerts] {_pe}")
 
                 # AI analysis (เฉพาะช่วงตลาดเปิดหรือทุก 3 ชั่วโมง)
                 if _is_market_open() or (int(now_unix / HOURLY_SEC) % 3 == 0):
