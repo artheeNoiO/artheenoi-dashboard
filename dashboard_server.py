@@ -1196,6 +1196,157 @@ def api_prices():
     return jsonify(data)
 
 
+@app.route("/api/ticker")
+@login_required
+def api_ticker():
+    """JSON ticker data for live 30s auto-update."""
+    mkt, _, _ = _get_mkt()
+    order = ["QQQ", "IVV", "DIA", "GC=F", "BTC-USD", "NVDA", "MSFT",
+             "GOOGL", "META", "AMZN", "TSLA", "AVGO", "AMD"]
+    items = []
+    for sym in order:
+        d = mkt.get(sym)
+        if not d or not d.get("price"):
+            continue
+        chg = d.get("change_pct") or d.get("chg") or 0
+        label = {"GC=F": "GOLD", "BTC-USD": "BTC"}.get(sym, sym)
+        items.append({"sym": sym, "label": label,
+                      "price": round(d["price"], 2), "chg": round(chg, 2)})
+    return jsonify(items)
+
+
+@app.route("/api/news/<sym>")
+@login_required
+def api_news(sym):
+    """News for a symbol via MarketAux."""
+    sym = sym.upper()
+    articles = []
+    if MARKETAUX_KEY:
+        try:
+            import requests as req
+            r = req.get(
+                "https://api.marketaux.com/v1/news/all",
+                params={"symbols": sym, "filter_entities": "true",
+                        "language": "en", "limit": 5,
+                        "api_token": MARKETAUX_KEY},
+                timeout=8, verify=False
+            )
+            for a in r.json().get("data", [])[:5]:
+                articles.append({
+                    "title": a.get("title", ""),
+                    "url":   a.get("url", ""),
+                    "published": (a.get("published_at", "") or "")[:10],
+                    "source": a.get("source", ""),
+                    "sentiment": (a.get("entities") or [{}])[0].get("sentiment_score", 0),
+                })
+        except Exception as e:
+            log.warning(f"[News] {sym}: {e}")
+    return jsonify({"sym": sym, "articles": articles})
+
+
+@app.route("/api/fundamentals/<sym>")
+@login_required
+def api_fundamentals(sym):
+    """Fundamental data via yfinance."""
+    sym = sym.upper()
+    try:
+        import yfinance as yf
+        import warnings; warnings.filterwarnings("ignore")
+        info = yf.Ticker(sym).info or {}
+
+        def _s(k, fmt=None):
+            v = info.get(k)
+            if v is None:
+                return "—"
+            try:
+                return format(float(v), fmt) if fmt else v
+            except Exception:
+                return str(v)
+
+        def _mill(k):
+            v = info.get(k)
+            if v is None:
+                return "—"
+            try:
+                v = float(v)
+                if v >= 1e12: return f"${v/1e12:.2f}T"
+                if v >= 1e9:  return f"${v/1e9:.2f}B"
+                if v >= 1e6:  return f"${v/1e6:.2f}M"
+                return f"${v:,.0f}"
+            except Exception:
+                return "—"
+
+        def _pct(k):
+            v = info.get(k)
+            try:
+                return f"{float(v)*100:.1f}%" if v is not None else "—"
+            except Exception:
+                return "—"
+
+        return jsonify({
+            "sym": sym,
+            "name": info.get("longName") or info.get("shortName", sym),
+            "sector": info.get("sector", "—"),
+            "industry": info.get("industry", "—"),
+            "market_cap": _mill("marketCap"),
+            "pe": _s("trailingPE", ".1f"),
+            "forward_pe": _s("forwardPE", ".1f"),
+            "eps": _s("trailingEps", ".2f"),
+            "revenue": _mill("totalRevenue"),
+            "revenue_growth": _pct("revenueGrowth"),
+            "gross_margin": _pct("grossMargins"),
+            "debt_equity": _s("debtToEquity", ".1f"),
+            "roe": _pct("returnOnEquity"),
+            "dividend_yield": _pct("dividendYield"),
+            "beta": _s("beta", ".2f"),
+            "avg_volume": _mill("averageVolume"),
+            "description": (info.get("longBusinessSummary", "") or "")[:400],
+        })
+    except Exception as e:
+        return jsonify({"sym": sym, "error": str(e)})
+
+
+@app.route("/watchlist")
+@login_required
+def watchlist_page():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.watchlist_page(user, mkt)
+
+
+@app.route("/watchlist/add", methods=["POST"])
+@login_required
+def watchlist_add():
+    sym = request.form.get("sym", "").upper().strip()
+    if sym:
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            wl = users[uname].get("watchlist", [])
+            if sym not in wl:
+                wl.append(sym)
+            users[uname]["watchlist"] = wl
+            save_users(users)
+    return redirect("/watchlist")
+
+
+@app.route("/watchlist/remove", methods=["POST"])
+@login_required
+def watchlist_remove():
+    sym = request.form.get("sym", "").upper().strip()
+    if sym:
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            wl = users[uname].get("watchlist", [])
+            if sym in wl:
+                wl.remove(sym)
+            users[uname]["watchlist"] = wl
+            save_users(users)
+    return redirect("/watchlist")
+
+
 @app.route("/api/compare")
 @login_required
 def api_compare():

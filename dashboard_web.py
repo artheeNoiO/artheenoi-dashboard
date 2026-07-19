@@ -330,6 +330,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
     is_admin = user.get("role") == "admin"
     nav = [
         ("stocks",    "📊", "Stocks"),
+        ("watchlist", "👁",  "Watchlist"),
         ("charts",    "📉", "Charts"),
         ("gold",      "🥇", "Gold"),
         ("crypto",    "₿",  "Crypto"),
@@ -442,6 +443,22 @@ setInterval(updateClock,1000); updateClock();
     const thb=d._thb||35.0;
     document.getElementById('thbRate').textContent='🇹🇭 ฿'+thb.toFixed(1);
   }}).catch(()=>{{}});
+}})();
+// Live ticker auto-update every 30s
+(function(){{
+  function buildTickerItem(t){{
+    const cls=t.chg>=0?'up':'dn', sign=t.chg>=0?'+':'';
+    return `<div class="ticker-item"><span class="ticker-sym">${{t.label}}</span><span class="ticker-px">$${{t.price.toLocaleString('en-US',{{minimumFractionDigits:2,maximumFractionDigits:2}})}}</span><span class="ticker-chg ${{cls}}">${{sign}}${{t.chg.toFixed(2)}}%</span></div>`;
+  }}
+  function refreshTicker(){{
+    fetch('/api/ticker').then(r=>r.json()).then(items=>{{
+      if(!items||!items.length)return;
+      const html=items.map(buildTickerItem).join('');
+      const el=document.getElementById('tickerInner');
+      if(el)el.innerHTML=html+html;
+    }}).catch(()=>{{}});
+  }}
+  setInterval(refreshTicker, 30000);
 }})();
 {extra_js}
 {_TOAST_JS}
@@ -855,6 +872,12 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
 <div class="g2" style="margin-bottom:16px">
   <div>{_portfolio_health_html(port_rows, total_val, total_cost)}</div>
   <div>{_sector_allocation_html(port_rows, total_val)}</div>
+</div>
+
+<!-- Attribution + Economic Calendar -->
+<div class="g2" style="margin-bottom:16px">
+  <div>{_portfolio_attribution_html(port_rows)}</div>
+  <div>{_econ_calendar_widget()}</div>
 </div>
 
 <!-- Portfolio -->
@@ -2896,6 +2919,7 @@ def _sidebar_html(user: dict, active: str) -> str:
     is_admin = user.get("role") == "admin"
     nav = [
         ("stocks",    "📊", "Stocks"),
+        ("watchlist", "👁",  "Watchlist"),
         ("charts",    "📉", "Charts"),
         ("gold",      "🥇", "Gold"),
         ("crypto",    "₿",  "Crypto"),
@@ -4595,6 +4619,265 @@ async function runBacktest() {
 """
 
     return _base("backtest", "Backtest", html, user, "", js)
+
+
+# ─── Portfolio Attribution ────────────────────────────────────────────────────
+
+def _portfolio_attribution_html(port_rows: list) -> str:
+    """Show P&L contribution bar chart (top winners + losers)."""
+    if not port_rows:
+        return ""
+    total_abs = sum(abs(r["pnl"]) for r in port_rows) or 1
+    sorted_rows = sorted(port_rows, key=lambda r: r["pnl"], reverse=True)
+    bars = ""
+    for r in sorted_rows:
+        pct = r["pnl"] / total_abs * 100
+        col = "var(--green)" if r["pnl"] >= 0 else "var(--red)"
+        sign = "+" if r["pnl"] >= 0 else ""
+        width = abs(pct)
+        bars += f"""<div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="font-weight:700">{r['sym']}</span>
+            <span style="color:{col};font-weight:700">{sign}${r['pnl']:,.0f} <span style="font-size:10px;color:var(--muted)">({sign}{r['pnl_pct']:.1f}%)</span></span>
+          </div>
+          <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:{min(width,100):.1f}%;background:{col};border-radius:3px"></div>
+          </div>
+        </div>"""
+    return f'<div class="card" style="margin-bottom:16px"><div class="card-hdr">📈 P&L Attribution</div>{bars}</div>'
+
+
+# ─── Economic Calendar Widget ─────────────────────────────────────────────────
+
+def _econ_calendar_widget() -> str:
+    """Hardcoded upcoming macro events (2026)."""
+    from datetime import date
+    today = date.today()
+    events = [
+        ("2026-07-29", "FOMC Rate Decision", "🏛️", "red"),
+        ("2026-07-30", "GDP Q2 Advance",     "📊", "blue"),
+        ("2026-08-12", "CPI July",           "💰", "gold"),
+        ("2026-08-14", "PPI July",           "🏭", "mid"),
+        ("2026-08-27", "Jackson Hole",       "🏔️", "purple"),
+        ("2026-09-10", "CPI August",         "💰", "gold"),
+        ("2026-09-16", "FOMC Rate Decision", "🏛️", "red"),
+        ("2026-10-13", "CPI September",      "💰", "gold"),
+        ("2026-10-29", "FOMC Rate Decision", "🏛️", "red"),
+        ("2026-11-05", "Nonfarm Payrolls",   "👷", "teal"),
+        ("2026-11-12", "CPI October",        "💰", "gold"),
+        ("2026-12-16", "FOMC Rate Decision", "🏛️", "red"),
+    ]
+    col_map = {"red":"var(--red)","blue":"var(--blue)","gold":"var(--gold)",
+               "mid":"var(--mid)","purple":"var(--purple)","teal":"var(--teal)"}
+    rows = ""
+    for ev_date_str, label, icon, col_key in events:
+        try:
+            ev_date = date.fromisoformat(ev_date_str)
+        except Exception:
+            continue
+        if ev_date < today:
+            continue
+        days = (ev_date - today).days
+        col = col_map.get(col_key, "var(--mid)")
+        urgency = "font-weight:700" if days <= 7 else ""
+        rows += f"""<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <span style="font-size:16px">{icon}</span>
+          <div style="flex:1">
+            <div style="font-size:12px;{urgency}">{label}</div>
+            <div style="font-size:11px;color:var(--muted)">{ev_date_str}</div>
+          </div>
+          <span style="font-size:11px;color:{col};font-weight:700;white-space:nowrap">{'TODAY' if days==0 else f'in {days}d'}</span>
+        </div>"""
+        if len(rows) > 3000:
+            break
+    if not rows:
+        rows = '<div style="color:var(--muted);font-size:13px">ไม่มีอีเวนต์ใกล้นี้</div>'
+    return f'<div class="card" style="margin-bottom:16px"><div class="card-hdr">📅 Economic Calendar</div>{rows}</div>'
+
+
+# ─── Watchlist Page ──────────────────────────────────────────────────────────
+
+def watchlist_page(user: dict, market_data: dict) -> str:
+    watchlist = user.get("watchlist", [])
+    ticker_html = _ticker_html(market_data)
+
+    cards = ""
+    for sym in watchlist:
+        d = market_data.get(sym, {})
+        price = d.get("price", 0)
+        closes = d.get("closes", [])
+        rsi = _calc_rsi(closes) if closes else d.get("rsi")
+        chg = d.get("chg", 0) or d.get("change_pct", 0)
+        ma20 = _ma(closes, 20)
+        ma50 = _ma(closes, 50)
+        high52 = d.get("high", 0)
+        low52  = d.get("low", 0)
+
+        chg_col = "var(--green)" if chg >= 0 else "var(--red)"
+        chg_s = "+" if chg >= 0 else ""
+        rsi_col = "#ef4444" if (rsi or 50) >= 70 else "#22c55e" if (rsi or 50) <= 30 else "#f59e0b"
+        action = "BUY" if (rsi and rsi <= 35) else "WATCH" if (rsi and rsi <= 45) else "AVOID" if (rsi and rsi >= 75) else "WAIT" if (rsi and rsi >= 65) else "NEUTRAL"
+        rng = (high52 - low52) if high52 and low52 else 1
+        pct_range = (price - low52) / rng * 100 if rng and price else 50
+
+        vs_ma20 = f'+{(price/ma20-1)*100:.1f}%' if ma20 else '—'
+        vs_ma50 = f'+{(price/ma50-1)*100:.1f}%' if ma50 else '—'
+        if ma20 and price < ma20:
+            vs_ma20 = f'{(price/ma20-1)*100:.1f}%'
+        if ma50 and price < ma50:
+            vs_ma50 = f'{(price/ma50-1)*100:.1f}%'
+
+        cards += f"""
+<div class="card" style="margin-bottom:12px">
+  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+    <div style="flex:1">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:18px">{sym}</span>
+        {_signal_badge(action)}
+      </div>
+      <div style="font-size:22px;font-weight:800;margin-top:4px">${f'{price:,.2f}' if price else '—'}</div>
+      <div style="font-size:13px;color:{chg_col};font-weight:700">{chg_s}{chg:.2f}% today</div>
+    </div>
+    <div style="text-align:right">
+      <canvas id="sp_{sym}" class="spark" style="width:100px;height:40px"></canvas>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <a href="/chart/{sym}" class="btn btn-ghost btn-sm">📉 Chart</a>
+      <form method="POST" action="/watchlist/remove" style="margin:0">
+        <input type="hidden" name="sym" value="{sym}">
+        <button class="btn btn-danger btn-sm" type="submit">✕ Remove</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Metrics row -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+    <div style="background:var(--bg3);border-radius:6px;padding:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">RSI(14)</div>
+      <div style="font-size:14px;font-weight:700;color:{rsi_col}">{rsi or '—'}</div>
+    </div>
+    <div style="background:var(--bg3);border-radius:6px;padding:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">vs MA20</div>
+      <div style="font-size:14px;font-weight:700;color:{'var(--green)' if ma20 and price>=ma20 else 'var(--red)'}">{vs_ma20}</div>
+    </div>
+    <div style="background:var(--bg3);border-radius:6px;padding:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">vs MA50</div>
+      <div style="font-size:14px;font-weight:700;color:{'var(--green)' if ma50 and price>=ma50 else 'var(--red)'}">{vs_ma50}</div>
+    </div>
+    <div style="background:var(--bg3);border-radius:6px;padding:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">52W Range</div>
+      <div style="font-size:11px;font-weight:700">{pct_range:.0f}%</div>
+    </div>
+  </div>
+
+  <!-- 52W range bar -->
+  <div style="margin-bottom:10px">
+    <div class="pbar"><div class="pbar-fill" style="width:{pct_range:.0f}%;background:var(--teal)"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px">
+      <span>L ${f'{low52:,.0f}' if low52 else '—'}</span><span>52W</span><span>H ${f'{high52:,.0f}' if high52 else '—'}</span>
+    </div>
+  </div>
+
+  <!-- Expandable panels -->
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn btn-ghost btn-sm" onclick="loadNews('{sym}',this)">📰 News</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadFundamentals('{sym}',this)">📊 Fundamentals</button>
+  </div>
+  <div id="news-{sym}" style="display:none;margin-top:10px"></div>
+  <div id="fund-{sym}" style="display:none;margin-top:10px"></div>
+</div>"""
+
+    spark_js = ""
+    for sym in watchlist:
+        d = market_data.get(sym, {})
+        closes = d.get("closes", [])
+        if closes:
+            chg = d.get("chg", 0)
+            col = "#22c55e" if chg >= 0 else "#ef4444"
+            spark_js += f"drawSpark('{sym}',{json.dumps(closes[-60:])},'{col}');"
+
+    html = f"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <div style="font-size:16px;font-weight:700">👁 Watchlist <span style="font-size:13px;color:var(--muted);font-weight:400">({len(watchlist)} stocks)</span></div>
+  <form method="POST" action="/watchlist/add" style="display:flex;gap:6px">
+    <input name="sym" placeholder="เพิ่ม symbol เช่น NVDA" style="width:180px;text-transform:uppercase" maxlength="10">
+    <button class="btn btn-primary btn-sm" type="submit">+ Add</button>
+  </form>
+</div>
+
+{cards or '<div class="card" style="text-align:center;color:var(--muted);padding:32px">ยังไม่มี watchlist — เพิ่ม symbol ด้านบน</div>'}
+"""
+
+    js = f"""
+function drawSpark(sym, closes, color) {{
+  const c = document.getElementById('sp_' + sym);
+  if (!c || !closes || closes.length < 2) return;
+  new Chart(c, {{
+    type: 'line',
+    data: {{ labels: closes.map((_,i)=>i),
+             datasets: [{{ data: closes, borderColor: color, borderWidth: 1.5,
+               pointRadius: 0, fill: true,
+               backgroundColor: ctx2 => {{
+                 const g = ctx2.chart.ctx.createLinearGradient(0,0,0,40);
+                 g.addColorStop(0, color+'33'); g.addColorStop(1, color+'00'); return g;
+               }}
+             }}] }},
+    options: {{ animation:false, responsive:false, plugins:{{legend:{{display:false}},tooltip:{{enabled:false}}}},
+               scales:{{x:{{display:false}},y:{{display:false}}}} }}
+  }});
+}}
+{spark_js}
+
+async function loadNews(sym, btn) {{
+  const box = document.getElementById('news-' + sym);
+  if (box.style.display !== 'none') {{ box.style.display = 'none'; return; }}
+  box.style.display = 'block';
+  box.innerHTML = '<span style="color:var(--muted);font-size:12px">⏳ กำลังโหลดข่าว...</span>';
+  try {{
+    const r = await fetch('/api/news/' + sym);
+    const d = await r.json();
+    if (!d.articles || !d.articles.length) {{
+      box.innerHTML = '<span style="color:var(--muted);font-size:12px">ไม่พบข่าวล่าสุด</span>';
+      return;
+    }}
+    box.innerHTML = d.articles.map(a => {{
+      const sent = a.sentiment > 0.1 ? '🟢' : a.sentiment < -0.1 ? '🔴' : '⚪';
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:600;margin-bottom:2px">${{sent}} <a href="${{a.url}}" target="_blank" style="color:var(--text);text-decoration:none">${{a.title}}</a></div>
+        <div style="font-size:11px;color:var(--muted)">${{a.source}} · ${{a.published}}</div>
+      </div>`;
+    }}).join('');
+  }} catch(e) {{
+    box.innerHTML = '<span style="color:var(--red);font-size:12px">โหลดข่าวไม่ได้</span>';
+  }}
+}}
+
+async function loadFundamentals(sym, btn) {{
+  const box = document.getElementById('fund-' + sym);
+  if (box.style.display !== 'none') {{ box.style.display = 'none'; return; }}
+  box.style.display = 'block';
+  box.innerHTML = '<span style="color:var(--muted);font-size:12px">⏳ กำลังโหลด fundamentals...</span>';
+  try {{
+    const r = await fetch('/api/fundamentals/' + sym);
+    const d = await r.json();
+    if (d.error) {{ box.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${{d.error}}</span>`; return; }}
+    const row = (label, val) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bg3);font-size:12px"><span style="color:var(--mid)">${{label}}</span><span style="font-weight:600">${{val}}</span></div>`;
+    box.innerHTML = `
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">${{d.name}}</div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:8px">${{d.sector}} · ${{d.industry}}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+        <div>${{row('Market Cap', d.market_cap)}}${{row('P/E (TTM)', d.pe)}}${{row('Forward P/E', d.forward_pe)}}${{row('EPS (TTM)', '$'+d.eps)}}${{row('Revenue', d.revenue)}}${{row('Rev Growth', d.revenue_growth)}}</div>
+        <div>${{row('Gross Margin', d.gross_margin)}}${{row('ROE', d.roe)}}${{row('Debt/Equity', d.debt_equity)}}${{row('Dividend', d.dividend_yield)}}${{row('Beta', d.beta)}}${{row('Avg Volume', d.avg_volume)}}</div>
+      </div>
+      ${{d.description ? `<div style="margin-top:8px;font-size:11px;color:var(--mid);line-height:1.5">${{d.description}}...</div>` : ''}}
+    `;
+  }} catch(e) {{
+    box.innerHTML = '<span style="color:var(--red);font-size:12px">โหลด fundamentals ไม่ได้</span>';
+  }}
+}}
+"""
+
+    return _base("watchlist", "Watchlist", html, user, ticker_html, js)
 
 
 LOADING_PAGE = """<!DOCTYPE html>
