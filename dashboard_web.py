@@ -215,6 +215,111 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal)}
 .sym-label{font-size:16px;font-weight:700;color:var(--text)}
 .chart-panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden}
 .chart-panel-label{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--bg3)}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+  .sidebar { display: none !important; }
+  .main-content { margin-left: 0 !important; padding: 12px 10px 70px !important; }
+  .topbar { padding: 0 10px; }
+  .topbar-search { display: none; }
+  .bottom-nav {
+    display: flex !important;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+    background: var(--bg2); border-top: 1px solid var(--border);
+    height: 56px; justify-content: space-around; align-items: center;
+  }
+  .bottom-nav a {
+    display: flex; flex-direction: column; align-items: center;
+    color: var(--mid); text-decoration: none; font-size: 9px; gap: 2px;
+    padding: 6px 8px; border-radius: 8px; transition: .15s; flex: 1;
+  }
+  .bottom-nav a.active { color: var(--teal); }
+  .bottom-nav a span.bn-icon { font-size: 18px; line-height: 1; }
+  .tbl-wrap, table { overflow-x: auto; display: block; }
+  .g2, .g3, .g4 { grid-template-columns: 1fr !important; }
+  #chart-main, #chart-volume, #chart-rsi, #chart-macd { width: 100% !important; }
+  .topbar-right .thb-pill { display: none; }
+}
+@media (min-width: 769px) {
+  .bottom-nav { display: none !important; }
+}
+
+/* ── Toast Notifications ── */
+.toast-container { position:fixed; top:60px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+.toast { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:12px 16px; min-width:260px; max-width:320px; box-shadow:0 4px 20px rgba(0,0,0,.4); pointer-events:all; animation:toastIn .3s ease; display:flex; align-items:flex-start; gap:10px; }
+.toast-icon { font-size:20px; flex-shrink:0; }
+.toast-body { flex:1; }
+.toast-title { font-weight:700; font-size:13px; color:var(--text); }
+.toast-msg { font-size:12px; color:var(--mid); margin-top:2px; }
+.toast-close { cursor:pointer; color:var(--muted); font-size:16px; line-height:1; padding:0 4px; }
+.toast.toast-buy { border-left:3px solid var(--green); }
+.toast.toast-sell { border-left:3px solid var(--red); }
+.toast.toast-info { border-left:3px solid var(--teal); }
+@keyframes toastIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+
+/* ── Quick-Add Button ── */
+.btn-qadd { background:rgba(45,212,191,.15); color:var(--teal); border:1px solid rgba(45,212,191,.3); padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:600; white-space:nowrap; }
+.btn-qadd:hover { background:rgba(45,212,191,.3); }
+"""
+
+# ─── Toast / Alert JS (always loaded) ────────────────────────────────────────
+
+_TOAST_JS = """
+// ── Toast notification system ──────────────────────────────────────
+window._ArtheeToast = {
+  container: null,
+  init() {
+    if (!this.container) {
+      this.container = document.createElement('div');
+      this.container.className = 'toast-container';
+      document.body.appendChild(this.container);
+    }
+  },
+  show(title, msg, type='info', duration=6000) {
+    this.init();
+    const icons = {buy:'🟢', sell:'🔴', info:'🔔'};
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.innerHTML = `<span class="toast-icon">${icons[type]||'🔔'}</span><div class="toast-body"><div class="toast-title">${title}</div><div class="toast-msg">${msg}</div></div><span class="toast-close" onclick="this.parentElement.remove()">✕</span>`;
+    this.container.appendChild(t);
+    if (duration > 0) setTimeout(() => t.remove(), duration);
+  }
+};
+// ── Price alert polling (check every 60s against user's alerts) ────
+let _lastAlertCheck = {};
+async function _checkBrowserAlerts() {
+  try {
+    const [priceRes, alertRes] = await Promise.all([
+      fetch('/api/prices'),
+      fetch('/api/alerts')
+    ]);
+    const prices = await priceRes.json();
+    const alerts = await alertRes.json();
+    (alerts.active || []).forEach(a => {
+      const d = prices[a.sym];
+      if (!d || !d.price) return;
+      const key = `${a.id}`;
+      const price = d.price;
+      let triggered = false;
+      if (a.condition === 'above' && price >= a.price) triggered = true;
+      if (a.condition === 'below' && price <= a.price) triggered = true;
+      if (a.condition === 'change_pct' && Math.abs(d.chg || 0) >= a.price) triggered = true;
+      if (triggered && _lastAlertCheck[key] !== true) {
+        _lastAlertCheck[key] = true;
+        const dir = a.condition === 'above' ? 'buy' : 'sell';
+        window._ArtheeToast.show(
+          `🚨 Alert: ${a.sym}`,
+          `Price $${price.toFixed(2)} — ${a.condition} $${a.price} triggered!`,
+          dir
+        );
+      } else if (!triggered) {
+        _lastAlertCheck[key] = false;
+      }
+    });
+  } catch(e) {}
+}
+setInterval(_checkBrowserAlerts, 60000);
+document.addEventListener('DOMContentLoaded', () => setTimeout(_checkBrowserAlerts, 3000));
 """
 
 # ─── Base Layout ──────────────────────────────────────────────────────────────
@@ -241,7 +346,13 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
         ("options",  "⚙",  "Options"),
+        ("backtest", "⏪", "Backtest"),
     ]
+    bn_stocks  = "active" if page_id == "stocks"   else ""
+    bn_charts  = "active" if page_id == "charts"   else ""
+    bn_screen  = "active" if page_id == "screener" else ""
+    bn_scanner = "active" if page_id == "scanner"  else ""
+    bn_chat    = "active" if page_id == "chat"     else ""
     nav_html = ""
     for nid, icon, label in nav:
         act = "active" if nid == page_id else ""
@@ -322,7 +433,15 @@ setInterval(updateClock,1000); updateClock();
   }}).catch(()=>{{}});
 }})();
 {extra_js}
+{_TOAST_JS}
 </script>
+<nav class="bottom-nav" style="display:none">
+  <a href="/stocks" class="{bn_stocks}"><span class="bn-icon">📊</span>Stocks</a>
+  <a href="/charts" class="{bn_charts}"><span class="bn-icon">📉</span>Charts</a>
+  <a href="/screener" class="{bn_screen}"><span class="bn-icon">🔭</span>Screen</a>
+  <a href="/scanner" class="{bn_scanner}"><span class="bn-icon">🔍</span>Scan</a>
+  <a href="/chat" class="{bn_chat}"><span class="bn-icon">💬</span>Chat</a>
+</nav>
 </body></html>"""
 
 # ─── Live Price API helpers ────────────────────────────────────────────────────
@@ -2123,6 +2242,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
             {pct52}
           </td>
           <td>{_action_badge(action)}</td>
+          <td><button class="btn-qadd" onclick="quickAdd('{sym}',{price:.2f})">+ Add</button></td>
         </tr>"""
 
     # ── Tab 2: Browse All ────────────────────────────────────────────────────
@@ -2150,6 +2270,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
           <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'};font-size:12px">{'+' if chg>=0 else ''}{(chg if price else 0.0):.2f}%</span></td>
           <td>{_rsi_bar(rsi) if rsi else '<span style="color:var(--muted)">—</span>'}</td>
           <td style="font-size:11px;color:var(--muted)">{e.get('note','')[:40]}</td>
+          <td><button class="btn-qadd" onclick="quickAdd('{e['t']}',{price:.2f})">+ Add</button></td>
         </tr>"""
 
     # ── Tab 3: Under Radar (Tier 3) ──────────────────────────────────────────
@@ -2234,9 +2355,9 @@ def screener_page(user: dict, market_data: dict, macro: dict,
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>Symbol</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>AI Score</th><th>Action</th>
+          <th>Symbol</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>AI Score</th><th>Action</th><th>Add</th>
         </tr></thead>
-        <tbody>{picks_rows or '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">กำลังโหลด Vault picks... (ใช้เวลา 2-3 นาทีหลัง refresh)</td></tr>'}</tbody>
+        <tbody>{picks_rows or '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">กำลังโหลด Vault picks... (ใช้เวลา 2-3 นาทีหลัง refresh)</td></tr>'}</tbody>
       </table>
     </div>
   </div>
@@ -2267,7 +2388,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
     <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
       <table class="tbl" id="vaultTable">
         <thead style="position:sticky;top:0;background:var(--card)"><tr>
-          <th>Symbol</th><th>Company</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>Note</th>
+          <th>Symbol</th><th>Company</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>Note</th><th>Add</th>
         </tr></thead>
         <tbody id="vaultBody">{all_rows}</tbody>
       </table>
@@ -2292,9 +2413,42 @@ def screener_page(user: dict, market_data: dict, macro: dict,
     </div>
   </div>
 </div>
+
+<!-- Quick-Add Modal -->
+<div id="qadd-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;width:320px;max-width:90vw">
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px">➕ Add to Portfolio</div>
+    <form method="POST" action="/portfolio/add-quick">
+      <input type="hidden" name="sym" id="qadd-sym">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mid)">Symbol</label>
+        <div id="qadd-sym-display" style="font-size:20px;font-weight:800;color:var(--teal);margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mid)">Shares</label>
+        <input type="number" name="shares" min="0.001" step="0.001" required placeholder="e.g. 10" style="margin-top:4px;width:100%">
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;color:var(--mid)">Cost per share (USD)</label>
+        <input type="number" name="cost" id="qadd-cost" min="0.01" step="0.01" required placeholder="e.g. 202.81" style="margin-top:4px;width:100%">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="submit" class="btn btn-primary" style="flex:1">Add to Portfolio</button>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('qadd-modal').style.display='none'">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
 """
 
     js = """
+// Quick-Add to portfolio
+function quickAdd(sym, price) {
+  document.getElementById('qadd-sym').value = sym;
+  document.getElementById('qadd-sym-display').textContent = sym;
+  document.getElementById('qadd-cost').value = price || '';
+  document.getElementById('qadd-modal').style.display = 'flex';
+}
 // Tab switching
 function showTab(name) {
   ['picks','all','under','sect'].forEach(t => {
@@ -2351,6 +2505,7 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
         ("options",  "⚙",  "Options"),
+        ("backtest", "⏪", "Backtest"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -3813,6 +3968,224 @@ function filterScanner(type, btn) {
 }
 """
     return _base("scanner", "Technical Scanner", html, user, "", js)
+
+
+def backtest_page(user: dict, market_data: dict) -> str:
+    """Backtest page — run strategy simulations against historical data."""
+    port      = list(user.get("portfolio", {}).keys())
+    watchlist = user.get("watchlist", [])
+    all_syms  = list(dict.fromkeys(port + watchlist)) or ["NVDA", "MSFT", "GOOGL", "AMZN", "TSLA"]
+
+    sym_opts = "".join(
+        f'<option value="{s}">{s}</option>' for s in all_syms
+    )
+    # Add extra popular symbols
+    extra_syms = ["NVDA", "MSFT", "GOOGL", "AMZN", "TSLA", "AVGO", "META", "AMD", "AAPL"]
+    for s in extra_syms:
+        if s not in all_syms:
+            sym_opts += f'<option value="{s}">{s}</option>'
+
+    html = f"""
+<div class="card" style="margin-bottom:16px;padding:16px 20px">
+  <div class="card-hdr" style="margin-bottom:12px">⏪ Backtest Strategy</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Symbol</label>
+      <select id="bt-sym" style="min-width:100px">
+        {sym_opts}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Strategy</label>
+      <select id="bt-strategy">
+        <option value="rsi">RSI Mean Reversion</option>
+        <option value="ma">MA Crossover</option>
+        <option value="bb">Bollinger Bands</option>
+        <option value="macd">MACD Signal</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Period</label>
+      <select id="bt-period">
+        <option value="6mo">6 Months</option>
+        <option value="1y" selected>1 Year</option>
+        <option value="2y">2 Years</option>
+        <option value="5y">5 Years</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="runBacktest()" id="bt-run-btn">▶ Run Backtest</button>
+  </div>
+</div>
+
+<!-- Strategy info cards -->
+<div class="g4" style="margin-bottom:16px">
+  <div class="card-sm" style="border-left:3px solid var(--teal)">
+    <div class="card-hdr">RSI Mean Reversion</div>
+    <div style="font-size:11px;color:var(--mid);line-height:1.6">Buy RSI &lt; 30<br>Sell RSI &gt; 70</div>
+  </div>
+  <div class="card-sm" style="border-left:3px solid var(--blue)">
+    <div class="card-hdr">MA Crossover</div>
+    <div style="font-size:11px;color:var(--mid);line-height:1.6">Buy MA20 crosses above MA50<br>Sell MA20 crosses below MA50</div>
+  </div>
+  <div class="card-sm" style="border-left:3px solid var(--gold)">
+    <div class="card-hdr">Bollinger Bands</div>
+    <div style="font-size:11px;color:var(--mid);line-height:1.6">Buy at lower band<br>Sell at upper band</div>
+  </div>
+  <div class="card-sm" style="border-left:3px solid var(--purple)">
+    <div class="card-hdr">MACD Signal</div>
+    <div style="font-size:11px;color:var(--mid);line-height:1.6">Buy MACD crosses above signal<br>Sell MACD crosses below signal</div>
+  </div>
+</div>
+
+<!-- Results (hidden until run) -->
+<div id="bt-results" style="display:none">
+  <div class="g4" style="margin-bottom:16px" id="bt-stats"></div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-hdr">Equity Curve (Normalized to 100)</div>
+    <canvas id="bt-chart" height="280"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-hdr">Trades (last 30)</div>
+    <div style="overflow-x:auto">
+      <table class="tbl" id="bt-trades-tbl">
+        <thead><tr>
+          <th>Buy Date</th><th>Sell Date</th><th>Buy Price</th><th>Sell Price</th><th>Shares</th><th>P&L</th>
+        </tr></thead>
+        <tbody id="bt-trades"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Loading spinner -->
+<div id="bt-loading" style="display:none;text-align:center;padding:40px">
+  <span class="spin" style="font-size:30px">⟳</span>
+  <div style="margin-top:12px;color:var(--mid)">Running backtest...</div>
+</div>
+"""
+
+    js = """
+let _btChart = null;
+
+async function runBacktest() {
+  const sym      = document.getElementById('bt-sym').value;
+  const strategy = document.getElementById('bt-strategy').value;
+  const period   = document.getElementById('bt-period').value;
+
+  document.getElementById('bt-results').style.display  = 'none';
+  document.getElementById('bt-loading').style.display  = 'block';
+  document.getElementById('bt-run-btn').disabled = true;
+
+  try {
+    const res  = await fetch(`/api/backtest?sym=${sym}&strategy=${strategy}&period=${period}`);
+    const data = await res.json();
+
+    document.getElementById('bt-loading').style.display = 'none';
+    document.getElementById('bt-run-btn').disabled = false;
+
+    if (data.error) {
+      alert('Backtest error: ' + data.error);
+      return;
+    }
+
+    // Stat cards
+    const retColor  = data.total_return >= 0 ? 'var(--green)' : 'var(--red)';
+    const ddColor   = 'var(--red)';
+    document.getElementById('bt-stats').innerHTML = `
+      <div class="card-sm">
+        <div class="stat-label">Total Return</div>
+        <div class="stat-val" style="color:${retColor}">${data.total_return >= 0 ? '+' : ''}${data.total_return.toFixed(2)}%</div>
+        <div class="stat-sub">Start $10,000 → $${data.final_value.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      </div>
+      <div class="card-sm">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-val" style="color:${data.win_rate >= 50 ? 'var(--green)' : 'var(--red)'}">${data.win_rate.toFixed(1)}%</div>
+        <div class="stat-sub">${data.num_trades} total trades</div>
+      </div>
+      <div class="card-sm">
+        <div class="stat-label">Max Drawdown</div>
+        <div class="stat-val" style="color:${ddColor}">-${data.max_drawdown.toFixed(2)}%</div>
+        <div class="stat-sub">Peak-to-trough</div>
+      </div>
+      <div class="card-sm">
+        <div class="stat-label"># Trades</div>
+        <div class="stat-val">${data.num_trades}</div>
+        <div class="stat-sub">${data.sym} · ${data.period}</div>
+      </div>
+    `;
+
+    // Equity curve chart
+    const ctx = document.getElementById('bt-chart').getContext('2d');
+    if (_btChart) _btChart.destroy();
+    _btChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.dates,
+        datasets: [
+          {
+            label: 'Strategy',
+            data: data.equity,
+            borderColor: '#2dd4bf',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.1,
+            fill: false,
+          },
+          {
+            label: 'Breakeven (100)',
+            data: data.dates.map(() => 100),
+            borderColor: '#787b86',
+            borderWidth: 1,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            fill: false,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#d1d4dc', font: { size: 11 } } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#787b86', maxTicksLimit: 12, font: { size: 10 } },
+            grid:  { color: '#363a45' }
+          },
+          y: {
+            ticks: { color: '#787b86', callback: v => v.toFixed(0), font: { size: 10 } },
+            grid:  { color: '#363a45' }
+          }
+        }
+      }
+    });
+
+    // Trades table
+    const tbody = document.getElementById('bt-trades');
+    tbody.innerHTML = (data.trades || []).map(t => {
+      const plColor = t.pl >= 0 ? 'var(--green)' : 'var(--red)';
+      const plSign  = t.pl >= 0 ? '+' : '';
+      return `<tr>
+        <td>${t.buy_date}</td>
+        <td>${t.sell_date}</td>
+        <td>$${t.buy_price.toFixed(2)}</td>
+        <td>$${t.sell_price.toFixed(2)}</td>
+        <td>${t.shares}</td>
+        <td style="color:${plColor};font-weight:700">${plSign}$${t.pl.toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('bt-results').style.display = 'block';
+  } catch(e) {
+    document.getElementById('bt-loading').style.display = 'none';
+    document.getElementById('bt-run-btn').disabled = false;
+    alert('Error: ' + e.message);
+  }
+}
+"""
+
+    return _base("backtest", "Backtest", html, user, "", js)
 
 
 LOADING_PAGE = """<!DOCTYPE html>

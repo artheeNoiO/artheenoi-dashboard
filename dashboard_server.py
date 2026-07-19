@@ -1055,6 +1055,16 @@ def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
 
     return "ตอนนี้ยังไม่ได้ตั้ง OpenRouter API Key ครับ\nไป Render → Environment → เพิ่ม OPENROUTER_API_KEY\nจะตอบได้ทุกอย่างเลยครับ 🤖"
 
+@app.route("/api/alerts")
+@login_required
+def api_alerts():
+    """Return current user's active (non-triggered) alerts for browser polling."""
+    user = get_user(session["username"])
+    alerts = (user or {}).get("alerts", [])
+    active = [a for a in alerts if a.get("active", True) and not a.get("triggered_at")]
+    return jsonify({"active": active})
+
+
 @app.route("/api/prices")
 @login_required
 def api_prices():
@@ -1498,6 +1508,181 @@ def api_options(sym):
     except Exception as e:
         log.warning(f"[api/options/{sym}] {e}")
         return jsonify({"error": str(e), "expiries": [], "calls": [], "puts": []})
+
+@app.route("/portfolio/add-quick", methods=["POST"])
+@login_required
+def portfolio_add_quick():
+    """Quick-add a symbol to portfolio from the screener page."""
+    sym    = request.form.get("sym", "").upper().strip()
+    shares = float(request.form.get("shares", 0) or 0)
+    cost   = float(request.form.get("cost", 0) or 0)
+    if not sym or shares <= 0 or cost <= 0:
+        return redirect("/screener")
+    uname = session["username"]
+    with _users_lock:
+        users = load_users()
+        port = users[uname].setdefault("portfolio", {})
+        if sym in port:
+            # Weighted average cost on re-add
+            old_shares = port[sym]["shares"]
+            old_cost   = port[sym]["cost"]
+            new_shares = old_shares + shares
+            port[sym]["cost"]   = round((old_shares * old_cost + shares * cost) / new_shares, 4)
+            port[sym]["shares"] = round(new_shares, 4)
+        else:
+            port[sym] = {"shares": round(shares, 4), "cost": round(cost, 4)}
+        save_users(users)
+    return redirect("/stocks")
+
+
+@app.route("/backtest")
+@login_required
+def backtest():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.backtest_page(user, mkt)
+
+
+@app.route("/api/backtest")
+@login_required
+def api_backtest():
+    sym      = request.args.get("sym", "NVDA").upper()
+    strategy = request.args.get("strategy", "rsi")
+    period   = request.args.get("period", "1y")
+    try:
+        import yfinance as yf, warnings, math as _math
+        warnings.filterwarnings("ignore")
+        hist = yf.Ticker(sym).history(period=period, interval="1d")
+        if hist.empty:
+            return jsonify({"error": "no data"})
+
+        closes  = [float(c) for c in hist["Close"].tolist()]
+        dates   = [str(d.date()) for d in hist.index]
+        n       = len(closes)
+
+        def ma(data, w):
+            return [sum(data[max(0, i - w + 1):i + 1]) / min(i + 1, w) for i in range(len(data))]
+
+        def rsi14(data):
+            result = [None] * 14
+            gains, losses = [], []
+            for i in range(1, 15):
+                d = data[i] - data[i - 1]
+                gains.append(max(d, 0)); losses.append(max(-d, 0))
+            ag, al = sum(gains) / 14, sum(losses) / 14
+            result[14] = 100 - 100 / (1 + ag / al) if al else 100
+            for i in range(15, len(data)):
+                d = data[i] - data[i - 1]
+                ag = (ag * 13 + max(d, 0)) / 14
+                al = (al * 13 + max(-d, 0)) / 14
+                result.append(100 - 100 / (1 + ag / al) if al else 100)
+            return result
+
+        def ema(data, w):
+            k = 2 / (w + 1); e = data[0]; out = [e]
+            for v in data[1:]:
+                e = v * k + e * (1 - k); out.append(e)
+            return out
+
+        def bb(data, w=20, mult=2):
+            upper, lower = [], []
+            for i in range(len(data)):
+                sl = data[max(0, i - w + 1):i + 1]
+                m = sum(sl) / len(sl)
+                std = (_math.sqrt(sum((x - m) ** 2 for x in sl) / len(sl))) if len(sl) > 1 else 0
+                upper.append(m + mult * std); lower.append(m - mult * std)
+            return upper, lower
+
+        # Generate signals
+        signals = [None] * n
+        if strategy == "rsi":
+            rsi_vals = rsi14(closes)
+            for i in range(1, n):
+                if rsi_vals[i] and rsi_vals[i - 1]:
+                    if rsi_vals[i - 1] >= 30 and rsi_vals[i] < 30: signals[i] = "BUY"
+                    elif rsi_vals[i - 1] <= 70 and rsi_vals[i] > 70: signals[i] = "SELL"
+        elif strategy == "ma":
+            ma20, ma50 = ma(closes, 20), ma(closes, 50)
+            for i in range(1, n):
+                if ma20[i - 1] <= ma50[i - 1] and ma20[i] > ma50[i]: signals[i] = "BUY"
+                elif ma20[i - 1] >= ma50[i - 1] and ma20[i] < ma50[i]: signals[i] = "SELL"
+        elif strategy == "bb":
+            upper, lower = bb(closes)
+            for i in range(1, n):
+                if closes[i] <= lower[i] and closes[i - 1] > lower[i - 1]: signals[i] = "BUY"
+                elif closes[i] >= upper[i] and closes[i - 1] < upper[i - 1]: signals[i] = "SELL"
+        elif strategy == "macd":
+            macd_line = [e - s for e, s in zip(ema(closes, 12), ema(closes, 26))]
+            sig_line  = ema(macd_line, 9)
+            for i in range(1, n):
+                if macd_line[i - 1] <= sig_line[i - 1] and macd_line[i] > sig_line[i]: signals[i] = "BUY"
+                elif macd_line[i - 1] >= sig_line[i - 1] and macd_line[i] < sig_line[i]: signals[i] = "SELL"
+
+        # Simulate trades (buy as many full shares as cash allows)
+        trades = []
+        position = None
+        cash = 10000.0; shares_held = 0; equity = []
+
+        for i in range(n):
+            if signals[i] == "BUY" and position is None:
+                shares_held = int(cash / closes[i])
+                if shares_held > 0:
+                    cash -= shares_held * closes[i]
+                    position = {"date": dates[i], "price": closes[i], "shares": shares_held}
+            elif signals[i] == "SELL" and position:
+                proceeds = position["shares"] * closes[i]
+                pl = proceeds - position["shares"] * position["price"]
+                cash += proceeds
+                trades.append({
+                    "buy_date":   position["date"],
+                    "sell_date":  dates[i],
+                    "buy_price":  round(position["price"], 2),
+                    "sell_price": round(closes[i], 2),
+                    "shares":     position["shares"],
+                    "pl":         round(pl, 2),
+                })
+                position = None; shares_held = 0
+            equity.append(round(cash + shares_held * closes[i], 2))
+
+        # Close any open position at last price
+        if position:
+            pl = position["shares"] * (closes[-1] - position["price"])
+            cash += position["shares"] * closes[-1]
+            trades.append({
+                "buy_date":   position["date"],
+                "sell_date":  dates[-1] + " (open)",
+                "buy_price":  round(position["price"], 2),
+                "sell_price": round(closes[-1], 2),
+                "shares":     position["shares"],
+                "pl":         round(pl, 2),
+            })
+
+        # Stats
+        start_val = 10000.0
+        end_val   = cash
+        total_ret = (end_val - start_val) / start_val * 100
+        wins      = [t for t in trades if t["pl"] > 0]
+        win_rate  = len(wins) / len(trades) * 100 if trades else 0
+        peak = start_val; max_dd = 0
+        for v in equity:
+            if v > peak: peak = v
+            dd = (peak - v) / peak * 100
+            if dd > max_dd: max_dd = dd
+
+        equity_norm = [round(v / start_val * 100, 2) for v in equity]
+
+        return jsonify({
+            "sym": sym, "strategy": strategy, "period": period,
+            "total_return": round(total_ret, 2), "win_rate": round(win_rate, 1),
+            "max_drawdown": round(max_dd, 2), "num_trades": len(trades),
+            "final_value": round(end_val, 2),
+            "equity": equity_norm, "dates": dates, "trades": trades[-30:]
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)})
+
 
 @app.route("/ping")
 def ping():
