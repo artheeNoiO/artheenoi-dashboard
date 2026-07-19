@@ -1,7 +1,7 @@
 """
 dashboard_web.py — ArtheeNoi Dashboard v2
 New premium dark UI: black/gray theme + sidebar navigation
-Pages: Stocks | Gold | Crypto | DCA | News
+Pages: Stocks | Gold | Crypto | DCA | News | Signals | Paper Trading | AI
 """
 import json
 import math
@@ -165,7 +165,10 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("gold",    "🥇", "Gold"),
         ("crypto",  "₿",  "Crypto"),
         ("dca",     "📈", "DCA"),
+        ("signals", "🎯", "Signals"),
         ("news",    "📰", "News"),
+        ("paper",   "🧪", "Paper Trade"),
+        ("ai",      "🤖", "AI Analysis"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -1069,6 +1072,528 @@ def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
     return _base("news", "News & Risk", html, user, "", "")
 
 # ─── Loading Page ─────────────────────────────────────────────────────────────
+
+# ─── SIGNALS PAGE (Day / Weekly / Monthly) ───────────────────────────────────
+
+def _compute_signals(sym: str, d: dict) -> dict:
+    """Compute day/weekly/monthly trade signals from market data."""
+    closes  = d.get("closes", [])
+    price   = d.get("price", 0)
+    chg_d   = d.get("change_pct") or d.get("chg") or 0
+
+    rsi      = _calc_rsi(closes) if len(closes) >= 15 else 50
+    ma20     = _ma(closes, 20)
+    ma50     = _ma(closes, 50)
+    ma200    = _ma(closes, 200) if len(closes) >= 200 else None
+
+    # Day signal (intraday momentum)
+    if abs(chg_d) < 0.3:
+        day_sig = "NEUTRAL"; day_col = "#9999a8"
+    elif chg_d > 1.5:
+        day_sig = "DAY BUY" if (rsi or 50) < 65 else "OVERBOUGHT"; day_col = "#22c55e"
+    elif chg_d > 0.3:
+        day_sig = "BULLISH"; day_col = "#4ade80"
+    elif chg_d < -1.5:
+        day_sig = "DAY SELL" if (rsi or 50) > 35 else "OVERSOLD"; day_col = "#ef4444"
+    else:
+        day_sig = "BEARISH"; day_col = "#f87171"
+
+    # Weekly signal (RSI + MA20)
+    if rsi and ma20:
+        if rsi < 35 and price < ma20:
+            wk_sig = "STRONG BUY"; wk_col = "#22c55e"
+        elif rsi < 45 and price > ma20:
+            wk_sig = "BUY"; wk_col = "#4ade80"
+        elif rsi > 70 and price > ma20:
+            wk_sig = "SELL"; wk_col = "#ef4444"
+        elif rsi > 60:
+            wk_sig = "WATCH"; wk_col = "#f59e0b"
+        else:
+            wk_sig = "HOLD"; wk_col = "#9999a8"
+    else:
+        wk_sig = "—"; wk_col = "#5a5a68"
+
+    # Monthly signal (MA50 + MA200 trend)
+    if ma50 and price > ma50:
+        if ma200 and ma50 > ma200:
+            mo_sig = "UPTREND ↑"; mo_col = "#22c55e"
+        elif ma200 and ma50 < ma200:
+            mo_sig = "RECOVERING"; mo_col = "#f59e0b"
+        else:
+            mo_sig = "ABOVE MA50"; mo_col = "#4ade80"
+    elif ma50 and price < ma50:
+        if ma200 and ma50 < ma200:
+            mo_sig = "DOWNTREND ↓"; mo_col = "#ef4444"
+        else:
+            mo_sig = "BELOW MA50"; mo_col = "#f87171"
+    else:
+        mo_sig = "—"; mo_col = "#5a5a68"
+
+    # Risk/Reward
+    support  = round(price * 0.96, 2)
+    resist   = round(price * 1.05, 2) if ma20 and price > ma20 else round(price * 1.03, 2)
+    rr       = round((resist - price) / (price - support), 1) if price > support else 0
+
+    return {
+        "day_sig": day_sig, "day_col": day_col,
+        "wk_sig":  wk_sig,  "wk_col":  wk_col,
+        "mo_sig":  mo_sig,  "mo_col":  mo_col,
+        "rsi": rsi, "rr": rr,
+        "support": support, "resist": resist,
+        "ma20": ma20, "ma50": ma50,
+    }
+
+def signals_page(user: dict, market_data: dict, thb: float) -> str:
+    port     = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    all_syms = list(port.keys()) + [s for s in watchlist if s not in port]
+
+    rows = ""
+    for sym in all_syms:
+        d = market_data.get(sym, {})
+        if not d.get("price"):
+            continue
+        price = d["price"]
+        chg   = d.get("change_pct") or d.get("chg") or 0
+        sig   = _compute_signals(sym, d)
+        in_port = sym in port
+
+        rows += f"""
+        <tr>
+          <td>
+            <div style="font-weight:800;font-size:14px">{sym}</div>
+            {'<div style="font-size:10px;color:var(--teal)">Portfolio</div>' if in_port else '<div style="font-size:10px;color:var(--muted)">Watchlist</div>'}
+          </td>
+          <td>${price:,.2f} <span style="font-size:11px;color:{'var(--green)' if chg>=0 else 'var(--red)'}">{'+' if chg>=0 else ''}{chg:.2f}%</span></td>
+          <td>{_rsi_bar(sig['rsi'])}</td>
+          <td><span style="font-weight:700;color:{sig['day_col']}">{sig['day_sig']}</span></td>
+          <td><span style="font-weight:700;color:{sig['wk_col']}">{sig['wk_sig']}</span></td>
+          <td><span style="font-weight:700;color:{sig['mo_col']}">{sig['mo_sig']}</span></td>
+          <td>
+            <div style="font-size:11px">
+              <span style="color:var(--green)">S ${sig['support']:,.2f}</span> /
+              <span style="color:var(--red)">R ${sig['resist']:,.2f}</span>
+            </div>
+            <div style="font-size:10px;color:var(--muted)">R:R = {sig['rr']}x</div>
+          </td>
+          <td style="font-size:11px;color:var(--muted)">
+            {'MA20 $'+str(f'{sig["ma20"]:,.0f}') if sig["ma20"] else '—'}<br>
+            {'MA50 $'+str(f'{sig["ma50"]:,.0f}') if sig["ma50"] else '—'}
+          </td>
+        </tr>"""
+
+    html = f"""
+<div class="card" style="margin-bottom:16px">
+  <div style="margin-bottom:14px">
+    <div class="card-hdr" style="margin-bottom:2px">🎯 Trade Signals — Day / Weekly / Monthly</div>
+    <div style="font-size:12px;color:var(--muted)">
+      Day = momentum วันนี้ &nbsp;·&nbsp; Weekly = RSI+MA20 &nbsp;·&nbsp; Monthly = trend MA50/MA200
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr>
+        <th>Symbol</th><th>ราคา</th><th>RSI</th>
+        <th>Day Signal</th><th>Weekly Signal</th><th>Monthly Signal</th>
+        <th>S/R Level</th><th>MAs</th>
+      </tr></thead>
+      <tbody>{rows or '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">ไม่มีข้อมูล</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="g3">
+  <div class="card-sm">
+    <div class="card-hdr">📅 Day Trade</div>
+    <div style="font-size:12px;line-height:1.9;color:var(--mid)">
+      <b style="color:var(--text)">DAY BUY:</b> เปลี่ยน &gt;+1.5%, RSI &lt;65<br>
+      <b style="color:var(--text)">DAY SELL:</b> เปลี่ยน &lt;−1.5%, RSI &gt;35<br>
+      <b style="color:var(--text)">BULLISH/BEARISH:</b> momentum ปานกลาง<br>
+      <span style="color:var(--muted)">ใช้ร่วมกับ Volume และ News</span>
+    </div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">📆 Weekly Trade</div>
+    <div style="font-size:12px;line-height:1.9;color:var(--mid)">
+      <b style="color:var(--text)">STRONG BUY:</b> RSI &lt;35 + ต่ำกว่า MA20<br>
+      <b style="color:var(--text)">BUY:</b> RSI &lt;45 + เหนือ MA20<br>
+      <b style="color:var(--text)">SELL:</b> RSI &gt;70 + เหนือ MA20<br>
+      <span style="color:var(--muted)">Time frame 5-15 วัน</span>
+    </div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">📅 Monthly/Swing</div>
+    <div style="font-size:12px;line-height:1.9;color:var(--mid)">
+      <b style="color:var(--text)">UPTREND:</b> ราคา &gt; MA50 และ MA50 &gt; MA200<br>
+      <b style="color:var(--text)">DOWNTREND:</b> ราคา &lt; MA50 และ MA50 &lt; MA200<br>
+      <b style="color:var(--text)">RECOVERING:</b> เริ่มฟื้นตัว<br>
+      <span style="color:var(--muted)">Time frame 1-3 เดือน</span>
+    </div>
+  </div>
+</div>
+"""
+    return _base("signals", "Trade Signals", html, user, "", "")
+
+# ─── PAPER TRADING PAGE ───────────────────────────────────────────────────────
+
+def paper_page(user: dict, market_data: dict, thb: float,
+               paper_trades: list = None) -> str:
+    trades   = paper_trades or []
+    cash_start = user.get("paper_cash_start", 10000)
+    cash       = user.get("paper_cash", cash_start)
+
+    # Calculate open positions P&L
+    open_positions = [t for t in trades if t.get("status") == "open"]
+    closed_trades  = [t for t in trades if t.get("status") == "closed"]
+
+    total_unrealized = 0.0
+    pos_rows = ""
+    for t in open_positions:
+        sym      = t["sym"]
+        d        = market_data.get(sym, {})
+        cur      = d.get("price", t["entry"])
+        qty      = t["qty"]
+        entry    = t["entry"]
+        side     = t.get("side", "LONG")
+        if side == "LONG":
+            unreal = (cur - entry) * qty
+        else:
+            unreal = (entry - cur) * qty
+        pct    = unreal / (entry * qty) * 100 if entry else 0
+        total_unrealized += unreal
+        pc = "pos" if unreal >= 0 else "neg"
+        ps = "+" if unreal >= 0 else ""
+        pos_rows += f"""
+        <tr>
+          <td><b>{sym}</b> <span style="font-size:10px;color:{'var(--teal)' if side=='LONG' else 'var(--orange)'}">{'▲ LONG' if side=='LONG' else '▼ SHORT'}</span></td>
+          <td>${entry:,.2f}</td>
+          <td>${cur:,.2f}</td>
+          <td>{qty}</td>
+          <td class="{pc}">{ps}${unreal:,.2f} ({ps}{pct:.1f}%)</td>
+          <td>
+            <form method="POST" action="/paper/close" style="display:inline">
+              <input type="hidden" name="trade_id" value="{t['id']}">
+              <input type="hidden" name="close_price" value="{cur}">
+              <button class="btn btn-ghost btn-sm">Close</button>
+            </form>
+          </td>
+        </tr>"""
+
+    # Closed trade history
+    total_realized = sum(t.get("pnl", 0) for t in closed_trades)
+    hist_rows = ""
+    for t in sorted(closed_trades, key=lambda x: x.get("close_date",""), reverse=True)[:10]:
+        pnl = t.get("pnl", 0)
+        pc  = "pos" if pnl >= 0 else "neg"
+        ps  = "+" if pnl >= 0 else ""
+        hist_rows += f"""
+        <tr>
+          <td>{t['sym']}</td>
+          <td style="color:{'var(--teal)' if t.get('side')=='LONG' else 'var(--orange)'}">{'LONG' if t.get('side')=='LONG' else 'SHORT'}</td>
+          <td>${t['entry']:,.2f} → ${t.get('close_price',0):,.2f}</td>
+          <td>{t['qty']}</td>
+          <td class="{pc}">{ps}${pnl:,.2f}</td>
+          <td style="font-size:11px;color:var(--muted)">{t.get('close_date','')[:10]}</td>
+        </tr>"""
+
+    # Stock options for trade form
+    port = user.get("portfolio", {})
+    wl   = user.get("watchlist", [])
+    all_syms = sorted(set(list(port.keys()) + wl + ["QQQ","IVV","DIA","GC=F","BTC-USD"]))
+    sym_opts  = "".join(f'<option value="{s}">${market_data.get(s,{}).get("price",0):,.2f} — {s}</option>' for s in all_syms if market_data.get(s,{}).get("price"))
+
+    total_equity = cash + total_unrealized
+    roi = (total_equity - cash_start) / cash_start * 100 if cash_start else 0
+    roi_col = "var(--green)" if roi >= 0 else "var(--red)"
+    roi_s   = "+" if roi >= 0 else ""
+
+    html = f"""
+<!-- Summary -->
+<div class="g4" style="margin-bottom:16px">
+  <div class="card-sm" style="border-top:3px solid var(--teal)">
+    <div class="card-hdr">Cash Available</div>
+    <div class="stat-val teal-c">${cash:,.2f}</div>
+    <div class="stat-lbl">Starting: ${cash_start:,.2f}</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Unrealized P&L</div>
+    <div class="stat-val {'pos' if total_unrealized>=0 else 'neg'}">{'+' if total_unrealized>=0 else ''}${total_unrealized:,.2f}</div>
+    <div class="stat-lbl">{len(open_positions)} open positions</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Realized P&L</div>
+    <div class="stat-val {'pos' if total_realized>=0 else 'neg'}">{'+' if total_realized>=0 else ''}${total_realized:,.2f}</div>
+    <div class="stat-lbl">{len(closed_trades)} trades closed</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Total Return</div>
+    <div class="stat-val" style="color:{roi_col}">{roi_s}{roi:.1f}%</div>
+    <div class="stat-lbl">Equity: ${total_equity:,.2f}</div>
+  </div>
+</div>
+
+<!-- Open Positions -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">📌 Open Positions</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>Entry</th><th>Current</th><th>Qty</th><th>Unrealized P&L</th><th></th></tr></thead>
+      <tbody>{pos_rows or '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">ยังไม่มี position เปิดอยู่</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+
+<!-- New Trade Form -->
+<div class="g2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">➕ เปิด Trade ใหม่</div>
+    <form method="POST" action="/paper/open">
+      <div style="display:grid;gap:10px">
+        <div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Symbol</label>
+          <select name="sym" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+            {sym_opts}
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Side</label>
+            <select name="side" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+              <option value="LONG">▲ LONG (ซื้อ)</option>
+              <option value="SHORT">▼ SHORT (ชอร์ต)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">จำนวนหุ้น</label>
+            <input type="number" name="qty" value="1" min="0.01" step="0.01"
+              style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">ราคาเข้า (0 = ราคาตลาด)</label>
+          <input type="number" name="entry" value="0" step="0.01" min="0"
+            style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+        </div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Stop Loss ($)</label>
+            <input type="number" name="sl" value="0" step="0.01"
+              style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target (TP $)</label>
+            <input type="number" name="tp" value="0" step="0.01"
+              style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">🚀 เปิด Trade</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Trade History -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="card-hdr" style="margin-bottom:0">📜 ประวัติ (10 ล่าสุด)</div>
+      <form method="POST" action="/paper/reset" onsubmit="return confirm('Reset paper trading ทั้งหมด?')">
+        <button class="btn btn-ghost btn-sm">🔄 Reset</button>
+      </form>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>Sym</th><th>Side</th><th>Entry→Close</th><th>Qty</th><th>P&L</th><th>Date</th></tr></thead>
+        <tbody>{hist_rows or '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">ยังไม่มีประวัติ</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+"""
+    return _base("paper", "Paper Trading", html, user, "", "")
+
+# ─── AI ANALYSIS PAGE ─────────────────────────────────────────────────────────
+
+def _ai_analyze(market_data: dict, user: dict, openrouter_key: str = "") -> str:
+    """Call OpenRouter → claude-haiku-4-5 for market analysis."""
+    if not openrouter_key:
+        return ""
+
+    port = user.get("portfolio", {})
+    lines = []
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        if not d.get("price"):
+            continue
+        closes  = d.get("closes", [])
+        rsi     = _calc_rsi(closes) if len(closes) >= 15 else None
+        chg     = d.get("change_pct") or d.get("chg") or 0
+        cost    = info.get("cost", 0)
+        shares  = info.get("shares", 0)
+        pnl_pct = (d["price"] - cost) / cost * 100 if cost else 0
+        lines.append(f"{sym}: price=${d['price']:.2f}, RSI={rsi}, change_today={chg:+.2f}%, P&L={pnl_pct:+.1f}%")
+
+    qqq = market_data.get("QQQ", {})
+    gold = market_data.get("GC=F", {})
+    btc  = market_data.get("BTC-USD", {})
+    ctx  = "\n".join(lines)
+    prompt = f"""You are ArtheeNoi, a Thai-language AI stock analyst. Today is {datetime.now().strftime('%Y-%m-%d')}.
+
+Market snapshot:
+- QQQ: ${qqq.get('price',0):,.2f} ({qqq.get('chg',0):+.2f}% today)
+- Gold: ${gold.get('price',0):,.2f} ({gold.get('chg',0):+.2f}%)
+- BTC: ${btc.get('price',0):,.0f} ({btc.get('chg',0):+.2f}%)
+
+User portfolio (Thai investor, ~20,000 THB capital, medium risk):
+{ctx}
+
+Write a concise Thai-language daily analysis (4-6 bullet points) covering:
+1. Overall market mood today
+2. Portfolio highlights — which stocks look good/risky
+3. 1-2 specific action items (buy/hold/reduce)
+4. One risk to watch this week
+
+Format: use bullet points with emoji. Keep it practical and concise for a retail Thai investor. Response in Thai."""
+
+    try:
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {openrouter_key}",
+                     "Content-Type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001",
+                  "max_tokens": 600,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=30, verify=False
+        )
+        return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        log.warning(f"[AI] OpenRouter error: {e}")
+        return ""
+
+def ai_page(user: dict, market_data: dict, macro: dict, thb: float,
+            openrouter_key: str = "", cached_analysis: str = "") -> str:
+
+    port = user.get("portfolio", {})
+    total_val = total_cost = total_pnl = 0
+    sym_summary = []
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        if not d.get("price"):
+            continue
+        sh = float(info.get("shares", 0))
+        c  = float(info.get("cost", 0))
+        v  = d["price"] * sh
+        ct = c * sh
+        total_val  += v
+        total_cost += ct
+        total_pnl  += v - ct
+        closes = d.get("closes", [])
+        rsi    = _calc_rsi(closes) if len(closes) >= 15 else None
+        sym_summary.append({
+            "sym": sym, "price": d["price"],
+            "chg": d.get("change_pct") or d.get("chg") or 0,
+            "rsi": rsi, "pnl_pct": (d["price"]-c)/c*100 if c else 0,
+        })
+
+    pnl_pct = total_pnl / total_cost * 100 if total_cost else 0
+    pnl_col = "var(--green)" if total_pnl >= 0 else "var(--red)"
+
+    # Sort by signal priority
+    sym_summary.sort(key=lambda x: x.get("rsi") or 50)
+
+    sym_rows = ""
+    for s in sym_summary:
+        rsi = s.get("rsi")
+        if rsi and rsi <= 35:
+            rec = "🟢 BUY เพิ่ม"; rc = "#22c55e"
+        elif rsi and rsi <= 45:
+            rec = "🟡 HOLD / DCA"; rc = "#f59e0b"
+        elif rsi and rsi >= 70:
+            rec = "🔴 ลด Position"; rc = "#ef4444"
+        elif s["pnl_pct"] > 30:
+            rec = "🟡 Take Profit?"; rc = "#f59e0b"
+        else:
+            rec = "⚪ HOLD"; rc = "#9999a8"
+        sym_rows += f"""
+        <tr>
+          <td><b>{s['sym']}</b></td>
+          <td>${s['price']:,.2f} <span style="color:{'var(--green)' if s['chg']>=0 else 'var(--red)'}">({'+' if s['chg']>=0 else ''}{s['chg']:.2f}%)</span></td>
+          <td>{_rsi_bar(rsi)}</td>
+          <td style="color:{'var(--green)' if s['pnl_pct']>=0 else 'var(--red)'};">{'+' if s['pnl_pct']>=0 else ''}{s['pnl_pct']:.1f}%</td>
+          <td style="font-weight:700;color:{rc}">{rec}</td>
+        </tr>"""
+
+    # AI analysis section
+    ai_html = ""
+    if cached_analysis:
+        lines = cached_analysis.strip().split("\n")
+        formatted = "".join(f'<div style="padding:6px 0;border-bottom:1px solid var(--bl);font-size:13px;line-height:1.7;color:var(--mid)">{l}</div>' for l in lines if l.strip())
+        ai_html = f"""
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+            <div class="card-hdr" style="margin-bottom:0">🤖 ArtheeNoi AI Analysis</div>
+            <form method="POST" action="/ai/analyze">
+              <button class="btn btn-ghost btn-sm">🔄 Refresh Analysis</button>
+            </form>
+          </div>
+          <div style="background:var(--card2);border-radius:8px;padding:14px">{formatted}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:8px">Powered by Claude Haiku · อัปเดตเมื่อกดปุ่ม Refresh</div>
+        </div>"""
+    elif openrouter_key:
+        ai_html = f"""
+        <div class="card" style="margin-bottom:16px;text-align:center">
+          <div class="card-hdr">🤖 ArtheeNoi AI Analysis</div>
+          <div style="color:var(--muted);font-size:13px;margin:16px 0">กดปุ่มด้านล่างเพื่อให้ AI วิเคราะห์ portfolio ของคุณ</div>
+          <form method="POST" action="/ai/analyze">
+            <button class="btn btn-primary">🚀 วิเคราะห์ AI ทันที</button>
+          </form>
+          <div style="font-size:11px;color:var(--muted);margin-top:8px">ใช้ Claude Haiku ผ่าน OpenRouter · ใช้เวลา ~5-10 วินาที</div>
+        </div>"""
+    else:
+        ai_html = f"""
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-hdr">🤖 ArtheeNoi AI Analysis</div>
+          <div style="background:var(--card2);border-radius:8px;padding:14px;color:var(--muted);font-size:13px">
+            ⚠️ ยังไม่ได้ตั้งค่า OPENROUTER_API_KEY<br>
+            ไป Render Dashboard → Environment → เพิ่ม <code style="color:var(--teal)">OPENROUTER_API_KEY</code> แล้ว Redeploy
+          </div>
+        </div>"""
+
+    html = f"""
+<!-- Portfolio Overview -->
+<div class="g3" style="margin-bottom:16px">
+  <div class="card-sm" style="border-top:3px solid var(--teal)">
+    <div class="card-hdr">Portfolio Value</div>
+    <div class="stat-val teal-c">${total_val:,.0f}</div>
+    <div class="stat-lbl">฿{total_val*thb:,.0f}</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Total P&L</div>
+    <div class="stat-val" style="color:{pnl_col}">{'+' if total_pnl>=0 else ''}${total_pnl:,.0f}</div>
+    <div class="stat-lbl" style="color:{pnl_col}">{'+' if pnl_pct>=0 else ''}{pnl_pct:.1f}%</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Positions</div>
+    <div class="stat-val">{len(port)}</div>
+    <div class="stat-lbl">หุ้นที่ถืออยู่</div>
+  </div>
+</div>
+
+{ai_html}
+
+<!-- Recommendation Table -->
+<div class="card">
+  <div class="card-hdr">📋 AI Recommendations per Stock</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>ราคา</th><th>RSI</th><th>P&L</th><th>AI แนะนำ</th></tr></thead>
+      <tbody>{sym_rows or '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">ยังไม่มี portfolio</td></tr>'}</tbody>
+    </table>
+  </div>
+  <div style="margin-top:12px;font-size:11px;color:var(--muted)">
+    * คำแนะนำจาก rule-based RSI + P&L analysis ไม่ใช่คำแนะนำทางการเงิน
+  </div>
+</div>
+"""
+    return _base("ai", "AI Analysis", html, user, "", "")
 
 LOADING_PAGE = """<!DOCTYPE html>
 <html lang="th">

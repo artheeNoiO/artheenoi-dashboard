@@ -32,7 +32,9 @@ log = logging.getLogger(__name__)
 ETFS   = ["QQQ", "IVV", "DIA"]
 GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
-MARKETAUX_KEY = os.environ.get("MARKETAUX_KEY", "")
+MARKETAUX_KEY    = os.environ.get("MARKETAUX_KEY", "")
+OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")
+_ai_cache: dict  = {}   # username → {"text": ..., "ts": datetime}
 
 # ─── Password ────────────────────────────────────────────────────────────────
 
@@ -732,6 +734,144 @@ def news():
     _, macro, _ = _get_mkt()
     user = get_user(session["username"])
     return dw.news_page(user, macro, MARKETAUX_KEY)
+
+@app.route("/signals")
+@login_required
+def signals():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, _, thb = _get_mkt()
+    user = get_user(session["username"])
+    return dw.signals_page(user, mkt, thb)
+
+# ─── Paper Trading ────────────────────────────────────────────────────────────
+
+def _get_paper_trades(uname: str) -> list:
+    user = get_user(uname)
+    return user.get("paper_trades", [])
+
+@app.route("/paper")
+@login_required
+def paper():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    uname = session["username"]
+    user  = get_user(uname)
+    trades = _get_paper_trades(uname)
+    return dw.paper_page(user, mkt, thb, trades)
+
+@app.route("/paper/open", methods=["POST"])
+@login_required
+def paper_open():
+    uname  = session["username"]
+    sym    = request.form.get("sym", "").upper()
+    side   = request.form.get("side", "LONG")
+    qty    = float(request.form.get("qty", 1) or 1)
+    entry  = float(request.form.get("entry", 0) or 0)
+    sl     = float(request.form.get("sl", 0) or 0)
+    tp     = float(request.form.get("tp", 0) or 0)
+
+    mkt, _, _ = _get_mkt()
+    if not entry:
+        entry = (mkt.get(sym) or {}).get("price", 0)
+    if not entry:
+        return redirect("/paper")
+
+    cost  = entry * qty
+    with _users_lock:
+        users  = load_users()
+        user   = users.get(uname, {})
+        cash   = user.get("paper_cash", user.get("paper_cash_start", 10000))
+        if cost > cash and side == "LONG":
+            return redirect("/paper")   # insufficient cash
+        trades = user.get("paper_trades", [])
+        new_id = max((t.get("id", 0) for t in trades), default=0) + 1
+        trades.append({
+            "id": new_id, "sym": sym, "side": side,
+            "qty": qty, "entry": round(entry, 4),
+            "sl": sl, "tp": tp,
+            "status": "open",
+            "open_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+        if side == "LONG":
+            user["paper_cash"] = round(cash - cost, 4)
+        user.setdefault("paper_cash_start", 10000)
+        user["paper_trades"] = trades
+        users[uname] = user
+        save_users(users)
+    return redirect("/paper")
+
+@app.route("/paper/close", methods=["POST"])
+@login_required
+def paper_close():
+    uname       = session["username"]
+    trade_id    = int(request.form.get("trade_id", 0))
+    close_price = float(request.form.get("close_price", 0) or 0)
+
+    with _users_lock:
+        users  = load_users()
+        user   = users.get(uname, {})
+        trades = user.get("paper_trades", [])
+        cash   = user.get("paper_cash", 10000)
+        for t in trades:
+            if t["id"] == trade_id and t["status"] == "open":
+                if not close_price:
+                    mkt, _, _ = _get_mkt()
+                    close_price = (mkt.get(t["sym"]) or {}).get("price", t["entry"])
+                if t.get("side") == "LONG":
+                    pnl = (close_price - t["entry"]) * t["qty"]
+                    cash += t["entry"] * t["qty"] + pnl
+                else:
+                    pnl = (t["entry"] - close_price) * t["qty"]
+                    cash += pnl
+                t.update({
+                    "status": "closed",
+                    "close_price": round(close_price, 4),
+                    "pnl": round(pnl, 4),
+                    "close_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                })
+                break
+        user["paper_cash"] = round(cash, 4)
+        user["paper_trades"] = trades
+        users[uname] = user
+        save_users(users)
+    return redirect("/paper")
+
+@app.route("/paper/reset", methods=["POST"])
+@login_required
+def paper_reset():
+    uname = session["username"]
+    update_user_fields(uname, {
+        "paper_trades": [],
+        "paper_cash": 10000,
+        "paper_cash_start": 10000,
+    })
+    return redirect("/paper")
+
+# ─── AI Analysis ──────────────────────────────────────────────────────────────
+
+@app.route("/ai")
+@login_required
+def ai_page():
+    import dashboard_web as dw
+    mkt, macro, thb = _get_mkt()
+    uname = session["username"]
+    user  = get_user(uname)
+    cached = (_ai_cache.get(uname) or {}).get("text", "")
+    return dw.ai_page(user, mkt, macro, thb, OPENROUTER_KEY, cached)
+
+@app.route("/ai/analyze", methods=["POST"])
+@login_required
+def ai_analyze():
+    import dashboard_web as dw
+    mkt, macro, thb = _get_mkt()
+    uname = session["username"]
+    user  = get_user(uname)
+    text  = dw._ai_analyze(mkt, user, OPENROUTER_KEY)
+    if text:
+        _ai_cache[uname] = {"text": text, "ts": datetime.now()}
+    return redirect("/ai")
 
 @app.route("/api/prices")
 @login_required

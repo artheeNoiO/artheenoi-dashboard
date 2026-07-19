@@ -13,3 +13,5 @@ services:
         value: "30"
       - key: MARKETAUX_KEY
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
