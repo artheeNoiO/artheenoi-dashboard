@@ -1,0 +1,13 @@
+# ห้าม push ไฟล์เหล่านี้เด็ดขาด
+.env
+*.env
+dashboard_users.json
+wiki/
+research/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+Thumbs.db
+logs/
+*.log

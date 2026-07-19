@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: artheenoi-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements_dashboard.txt
+    startCommand: python dashboard_server.py
+    envVars:
+      - key: FLASK_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        value: artheenoi2026
+      - key: REFRESH_MINUTES
+        value: "30"
+      - key: MARKETAUX_KEY
+        sync: false
