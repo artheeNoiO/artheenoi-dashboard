@@ -195,6 +195,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("news",    "📰", "News"),
         ("paper",   "🧪", "Paper Trade"),
         ("ai",      "🤖", "AI Analysis"),
+        ("screener","🔭", "Screener"),
         ("chat",    "💬", "Chat ArtheeNoi"),
     ]
     nav_html = ""
@@ -1817,6 +1818,296 @@ setInterval(updateClock,1000);updateClock();
 </body></html>"""
     return html
 
+# ─── SCREENER PAGE ───────────────────────────────────────────────────────────
+
+_TIER_LABEL = {1: "🔵 Blue-chip", 2: "🟡 Growth", 3: "🔴 Speculative"}
+_TIER_COL   = {1: "var(--blue)", 2: "var(--gold)", 3: "var(--red)"}
+
+def _action_badge(action: str) -> str:
+    colors = {
+        "BUY":        ("#22c55e", "#22c55e22"),
+        "STRONG BUY": ("#4ade80", "#22c55e33"),
+        "WATCH":      ("#f59e0b", "#f59e0b22"),
+        "WAIT":       ("#9999a8", "#6b6b7822"),
+        "NEUTRAL":    ("#9999a8", "#6b6b7822"),
+        "AVOID":      ("#ef4444", "#ef444422"),
+    }
+    fg, bg = colors.get(action, ("#9999a8", "#6b6b7822"))
+    return (f'<span style="background:{bg};color:{fg};border:1px solid {fg}44;'
+            f'font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;'
+            f'text-transform:uppercase">{action}</span>')
+
+def screener_page(user: dict, market_data: dict, macro: dict,
+                  vault_picks: list = None) -> str:
+    """
+    3 tabs:
+      1. Top Picks — ArtheeNoi daily filtered list (from vault_picks cache)
+      2. Browse All — all 600+ stocks searchable/filterable
+      3. Under Radar — tier 3 speculative stocks
+    """
+    try:
+        import at_stock_vault as vault
+        VAULT = vault.VAULT
+        summary = vault.vault_summary()
+    except ImportError:
+        VAULT = []
+        summary = {"total": 0, "tier1": 0, "tier2": 0, "tier3": 0, "sectors": {}}
+
+    picks = vault_picks or []
+
+    # ── Tab 1: Top Picks ────────────────────────────────────────────────────
+    regime   = (macro or {}).get("regime", "mid_cycle")
+    risk_lvl = (macro or {}).get("risk_level", "normal_risk")
+    regime_display = {
+        "expansion":     "🚀 Expansion",
+        "mid_cycle":     "📈 Mid Cycle",
+        "recession_risk":"⚠️ Recession Risk",
+        "crisis":        "🔴 Crisis",
+        "overheating":   "🌡 Overheating",
+    }.get(regime, regime)
+
+    picks_rows = ""
+    for p in picks[:60]:
+        sym    = p.get("sym") or p.get("t", "")
+        d      = market_data.get(sym, {})
+        price  = d.get("price", 0)
+        chg    = d.get("change_pct") or d.get("chg") or 0
+        rsi    = d.get("rsi")
+        action = p.get("action", "NEUTRAL")
+        sector = p.get("sector") or p.get("s", "")
+        score  = p.get("ai_score", 0)
+        note   = next((e.get("note","") for e in VAULT if e["t"]==sym), "")
+        tier   = next((e.get("tier", 2) for e in VAULT if e["t"]==sym), 2)
+        pct52  = ""
+        if d.get("high") and d.get("low") and price:
+            rng = d["high"] - d["low"]
+            pos = (price - d["low"]) / rng * 100 if rng else 50
+            pct52 = f'<div class="pbar" style="width:70px;margin-top:3px"><div class="pbar-fill" style="width:{pos:.0f}%;background:var(--teal)"></div></div>'
+
+        picks_rows += f"""
+        <tr>
+          <td>
+            <div style="font-weight:800;font-size:14px">{sym}</div>
+            <div style="font-size:10px;color:var(--muted)">{note[:35]}</div>
+          </td>
+          <td><span style="font-size:11px;color:var(--mid)">{sector}</span></td>
+          <td><span style="color:{_TIER_COL.get(tier,'var(--mid)')};font-size:11px;font-weight:700">{_TIER_LABEL.get(tier,'')}</span></td>
+          <td>{'$'+f'{price:,.2f}' if price else '<span style="color:var(--muted)">—</span>'}</td>
+          <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'}">{'+'if chg>=0 else ''}{chg:.2f}%</span></td>
+          <td>{_rsi_bar(rsi)}</td>
+          <td>
+            <div style="font-size:22px;font-weight:900;color:{'var(--teal)' if score>=70 else 'var(--gold)' if score>=50 else 'var(--muted)'}">{score or '—'}</div>
+            {pct52}
+          </td>
+          <td>{_action_badge(action)}</td>
+        </tr>"""
+
+    # ── Tab 2: Browse All ────────────────────────────────────────────────────
+    all_sectors = sorted({e["s"] for e in VAULT})
+    sector_btns = "".join(
+        f'<button class="chip" onclick="filterSector(this,\'{s}\')">{s}</button>'
+        for s in all_sectors
+    )
+
+    all_rows = ""
+    for e in VAULT:
+        d     = market_data.get(e["t"], {})
+        price = d.get("price", 0)
+        chg   = d.get("change_pct") or d.get("chg") or 0
+        rsi   = d.get("rsi")
+        tier  = e.get("tier", 2)
+        all_rows += f"""
+        <tr class="vault-row" data-sector="{e['s']}" data-tier="{tier}"
+            data-sym="{e['t']}" data-search="{e['t'].lower()} {e['c'].lower()} {e['s'].lower()} {e.get('note','').lower()}">
+          <td><b style="font-size:13px">{e['t']}</b></td>
+          <td style="font-size:12px;color:var(--mid)">{e['c']}</td>
+          <td><span style="font-size:11px;color:var(--mid)">{e['s']}</span></td>
+          <td><span style="color:{_TIER_COL.get(tier,'var(--mid)')};font-size:10px;font-weight:700">{_TIER_LABEL.get(tier,'')}</span></td>
+          <td>{'$'+f'{price:,.2f}' if price else '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+          <td><span style="color:{'var(--green)'if chg>=0 else 'var(--red)';font-size:12px}">{'+'if chg>=0 else ''}{chg:.2f if price else 0:.2f}%</span></td>
+          <td>{_rsi_bar(rsi) if rsi else '<span style="color:var(--muted)">—</span>'}</td>
+          <td style="font-size:11px;color:var(--muted)">{e.get('note','')[:40]}</td>
+        </tr>"""
+
+    # ── Tab 3: Under Radar (Tier 3) ──────────────────────────────────────────
+    tier3 = [e for e in VAULT if e.get("tier") == 3]
+    under_cards = ""
+    for e in tier3:
+        d     = market_data.get(e["t"], {})
+        price = d.get("price", 0)
+        chg   = d.get("change_pct") or d.get("chg") or 0
+        rsi   = d.get("rsi")
+        if price:
+            closes = d.get("closes", [])
+            hi = d.get("high", price * 1.3)
+            lo = d.get("low",  price * 0.7)
+            pos = (price - lo) / (hi - lo) * 100 if hi > lo else 50
+            buy = rsi and rsi <= 40
+        under_cards += f"""
+        <div class="card-sm" style="border-left:3px solid var(--purple)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <div style="font-weight:800;font-size:14px">{e['t']}</div>
+              <div style="font-size:11px;color:var(--muted)">{e['c']}</div>
+            </div>
+            {'<span style="font-size:10px;font-weight:800;color:var(--teal);border:1px solid var(--teal)44;padding:2px 7px;border-radius:10px">👀 WATCH</span>' if (price and rsi and rsi<=40) else ''}
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">{e['s']} · {e.get('note','')[:40]}</div>
+          {f'<div style="margin-top:8px"><div style="font-size:16px;font-weight:800">${price:,.2f} <span style="font-size:11px;color:{chr(39)}var(--green){chr(39) if chg>=0 else chr(39)}var(--red){chr(39)}">{chr(43) if chg>=0 else chr(45)}{abs(chg):.2f}%</span></div><div class="pbar" style="margin-top:4px"><div class="pbar-fill" style="width:{pos:.0f}%;background:var(--purple)"></div></div></div>' if price else '<div style="color:var(--muted);font-size:11px;margin-top:6px">ยังไม่มีราคา</div>'}
+        </div>"""
+
+    # ── Sector summary cards ─────────────────────────────────────────────────
+    top_sectors = sorted(summary.get("sectors", {}).items(), key=lambda x: -x[1])[:12]
+    sector_cards = "".join(
+        f'<div style="background:var(--card2);border-radius:8px;padding:8px 12px;font-size:12px">'
+        f'<div style="color:var(--mid);font-size:10px">{s}</div>'
+        f'<div style="font-weight:700;color:var(--text)">{n} หุ้น</div></div>'
+        for s, n in top_sectors
+    )
+
+    html = f"""
+<!-- Stats bar -->
+<div class="g4" style="margin-bottom:16px">
+  <div class="card-sm">
+    <div class="card-hdr">Vault ทั้งหมด</div>
+    <div class="stat-val teal-c">{summary['total']}</div>
+    <div class="stat-lbl">หุ้นใน database</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Top Picks วันนี้</div>
+    <div class="stat-val" style="color:var(--gold)">{len(picks)}</div>
+    <div class="stat-lbl">ArtheeNoi เลือก</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Macro Regime</div>
+    <div style="font-size:15px;font-weight:800;margin-top:4px">{regime_display}</div>
+    <div class="stat-lbl" style="color:{'var(--red)' if 'Risk' in risk_lvl or 'Crisis' in regime_display else 'var(--green)'}">{risk_lvl}</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Tier</div>
+    <div style="font-size:12px;line-height:2;color:var(--mid)">
+      🔵 <b style="color:var(--text)">{summary['tier1']}</b> Blue-chip &nbsp;
+      🟡 <b style="color:var(--text)">{summary['tier2']}</b> Growth<br>
+      🔴 <b style="color:var(--text)">{summary['tier3']}</b> Under Radar
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:0">
+  <button class="tab active" id="tabPicks" onclick="showTab('picks')">🎯 Top Picks ({len(picks)})</button>
+  <button class="tab" id="tabAll"   onclick="showTab('all')">🔭 Browse All ({summary['total']})</button>
+  <button class="tab" id="tabUnder" onclick="showTab('under')">👀 Under Radar ({len(tier3)})</button>
+  <button class="tab" id="tabSect" onclick="showTab('sect')">📊 Sectors</button>
+</div>
+
+<!-- Tab: Top Picks -->
+<div id="panePicks">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-hdr" style="margin-bottom:0">ArtheeNoi Daily Picks — {regime_display}</div>
+      <span style="font-size:11px;color:var(--muted)">อัปเดตตอน market refresh</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr>
+          <th>Symbol</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>AI Score</th><th>Action</th>
+        </tr></thead>
+        <tbody>{picks_rows or '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">กำลังโหลด Vault picks... (ใช้เวลา 2-3 นาทีหลัง refresh)</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Browse All -->
+<div id="paneAll" style="display:none">
+  <div class="card">
+    <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <input id="vaultSearch" type="text" placeholder="ค้นหา symbol / ชื่อ / sector..."
+        style="flex:1;min-width:180px;background:var(--card2);border:1px solid var(--border);border-radius:8px;
+               padding:8px 12px;color:var(--text);font-size:13px;outline:none"
+        oninput="filterVault()">
+      <select id="tierFilter" onchange="filterVault()"
+        style="background:var(--card2);border:1px solid var(--border);border-radius:8px;
+               color:var(--text);padding:8px 12px;font-size:12px;cursor:pointer">
+        <option value="">All Tiers</option>
+        <option value="1">🔵 Blue-chip</option>
+        <option value="2">🟡 Growth</option>
+        <option value="3">🔴 Speculative</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="chip" onclick="filterSector(this,'')">All</button>
+      {sector_btns}
+    </div>
+    <div id="vaultCount" style="font-size:11px;color:var(--muted);margin-bottom:8px">{summary['total']} หุ้น</div>
+    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+      <table class="tbl" id="vaultTable">
+        <thead style="position:sticky;top:0;background:var(--card)"><tr>
+          <th>Symbol</th><th>Company</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>Note</th>
+        </tr></thead>
+        <tbody id="vaultBody">{all_rows}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Under Radar -->
+<div id="paneUnder" style="display:none">
+  <div class="card-hdr" style="margin-bottom:10px">👀 Under-Radar Stocks ({len(tier3)} ตัว) — Tier 3 Speculative</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+    {under_cards or '<div style="color:var(--muted)">ไม่มีข้อมูล</div>'}
+  </div>
+</div>
+
+<!-- Tab: Sectors -->
+<div id="paneSect" style="display:none">
+  <div class="card">
+    <div class="card-hdr">📊 Sector Breakdown</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-top:4px">
+      {sector_cards}
+    </div>
+  </div>
+</div>
+"""
+
+    js = """
+// Tab switching
+function showTab(name) {
+  ['picks','all','under','sect'].forEach(t => {
+    document.getElementById('pane'+t.charAt(0).toUpperCase()+t.slice(1)).style.display = t===name?'':'none';
+    const btn = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(btn) btn.classList.toggle('active', t===name);
+  });
+}
+// Vault search + filter
+let _activeSector = '';
+function filterVault() {
+  const q    = document.getElementById('vaultSearch').value.toLowerCase().trim();
+  const tier = document.getElementById('tierFilter').value;
+  let shown  = 0;
+  document.querySelectorAll('#vaultBody tr.vault-row').forEach(tr => {
+    const search = tr.dataset.search || '';
+    const sec    = tr.dataset.sector || '';
+    const t      = tr.dataset.tier || '';
+    const match  = (!q || search.includes(q)) &&
+                   (!tier || t === tier) &&
+                   (!_activeSector || sec === _activeSector);
+    tr.style.display = match ? '' : 'none';
+    if(match) shown++;
+  });
+  document.getElementById('vaultCount').textContent = shown + ' หุ้น';
+}
+function filterSector(el, sec) {
+  _activeSector = sec;
+  document.querySelectorAll('.chip').forEach(c => c.style.color='');
+  if(el) el.style.color = 'var(--teal)';
+  filterVault();
+}
+"""
+
+    return _base("screener", "Stock Screener", html, user, "", js)
+
 def _sidebar_html(user: dict, active: str) -> str:
     is_admin = user.get("role") == "admin"
     nav = [
@@ -1828,6 +2119,7 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("news",    "📰", "News"),
         ("paper",   "🧪", "Paper Trade"),
         ("ai",      "🤖", "AI Analysis"),
+        ("screener","🔭", "Screener"),
         ("chat",    "💬", "Chat ArtheeNoi"),
     ]
     nav_html = ""

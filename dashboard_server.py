@@ -132,7 +132,8 @@ def admin_required(f):
 # ─── Market Data Cache ────────────────────────────────────────────────────────
 
 _mkt_lock  = threading.Lock()
-_mkt_cache = {"data": None, "macro": None, "thb": 35.0, "updated": None}
+_mkt_cache = {"data": None, "macro": None, "thb": 35.0,
+              "updated": None, "vault_picks": []}
 _gen_lock  = threading.Lock()   # ป้องกัน generate() race condition
 _refreshing = threading.Event()
 
@@ -218,9 +219,27 @@ def _do_market_refresh():
         macro.setdefault("qqq_chg", qqq_chg)
         macro.setdefault("mood", "BULL" if qqq_chg > 0.5 else "BEAR" if qqq_chg < -0.5 else "NEUTRAL")
 
+        # Vault picks (top ArtheeNoi picks filtered by macro)
+        vault_picks = []
+        try:
+            import at_stock_vault as vault_mod
+            qqq_chg = (mkt.get("QQQ") or {}).get("change_pct", 0) or (mkt.get("QQQ") or {}).get("chg", 0)
+            mood    = "BULL" if qqq_chg > 0.5 else "BEAR" if qqq_chg < -0.5 else "NEUTRAL"
+            vault_picks = vault_mod.get_vault_picks(macro=macro, qqq_chg=qqq_chg,
+                                                    market_mood=mood, n=60)
+            # Merge vault stock prices into mkt cache
+            vault_syms = [p.get("sym") or p.get("t","") for p in vault_picks]
+            new_syms   = [s for s in vault_syms if s and not mkt.get(s)]
+            if new_syms:
+                extra = vault_mod.fetch_picks_lite(new_syms[:50])
+                mkt.update(extra)
+            log.info(f"[Vault] {len(vault_picks)} picks loaded")
+        except Exception as e:
+            log.warning(f"[Vault] {e}")
+
         with _mkt_lock:
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
-                               "updated": datetime.now()})
+                               "updated": datetime.now(), "vault_picks": vault_picks})
 
         log.info(f"[Market] Refresh done — {len(mkt)} symbols, THB={thb:.2f}")
         return True
@@ -691,13 +710,17 @@ def logout():
     return redirect("/login")
 
 def _get_mkt():
-    """Return (mkt, macro, thb) from cache or ({}, {}, 35.0) if not ready."""
+    """Return (mkt, macro, thb) from cache."""
     with _mkt_lock:
         return (
             _mkt_cache.get("data") or {},
             _mkt_cache.get("macro") or {},
             _mkt_cache.get("thb", 35.0),
         )
+
+def _get_vault_picks():
+    with _mkt_lock:
+        return _mkt_cache.get("vault_picks") or []
 
 def _require_mkt():
     """Return True if market data is ready, False if still loading."""
@@ -758,6 +781,15 @@ def news():
     _, macro, _ = _get_mkt()
     user = get_user(session["username"])
     return dw.news_page(user, macro, MARKETAUX_KEY)
+
+@app.route("/screener")
+@login_required
+def screener():
+    import dashboard_web as dw
+    mkt, macro, _ = _get_mkt()
+    user  = get_user(session["username"])
+    picks = _get_vault_picks()
+    return dw.screener_page(user, mkt, macro, picks)
 
 @app.route("/signals")
 @login_required
