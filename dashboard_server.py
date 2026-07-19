@@ -295,6 +295,9 @@ def _do_market_refresh():
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
                                "updated": datetime.now(), "vault_picks": vault_picks})
 
+        # Record daily portfolio snapshots for all users
+        _record_portfolio_snapshots(mkt, thb)
+
         log.info(f"[Market] Refresh done — {len(mkt)} symbols, THB={thb:.2f}")
         return True
 
@@ -303,6 +306,37 @@ def _do_market_refresh():
         return False
     finally:
         _refreshing.clear()
+
+def _record_portfolio_snapshots(mkt: dict, thb: float):
+    """Append daily portfolio value snapshot for every user (once per day)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with _users_lock:
+            users = load_users()
+            changed = False
+            for uname, u in users.items():
+                if not isinstance(u, dict) or uname.startswith("_"):
+                    continue
+                snaps = u.get("portfolio_snapshots", [])
+                if snaps and snaps[-1].get("date") == today:
+                    continue  # already recorded today
+                # Calculate total portfolio value
+                total = 0.0
+                port = _get_active_portfolio(u)
+                for sym, info in port.items():
+                    d = mkt.get(sym, {})
+                    if d.get("price"):
+                        total += d["price"] * float(info.get("shares", 0))
+                if total > 0:
+                    snaps.append({"date": today, "value": round(total, 2),
+                                  "thb": round(total * thb, 0)})
+                    u["portfolio_snapshots"] = snaps[-365:]  # keep 1 year
+                    changed = True
+            if changed:
+                _save_users_raw(users)
+    except Exception as e:
+        log.warning(f"[Snapshot] {e}")
+
 
 _refresh_trigger = threading.Event()
 
@@ -1247,7 +1281,7 @@ def api_news(sym):
 @app.route("/api/fundamentals/<sym>")
 @login_required
 def api_fundamentals(sym):
-    """Fundamental data via yfinance."""
+    """Fundamental data via yfinance (incl. analyst ratings + price target)."""
     sym = sym.upper()
     try:
         import yfinance as yf
@@ -1283,6 +1317,16 @@ def api_fundamentals(sym):
             except Exception:
                 return "—"
 
+        # Analyst consensus
+        rec_key = info.get("recommendationKey", "")
+        rec_map = {"strongBuy": "Strong Buy", "buy": "Buy", "hold": "Hold",
+                   "sell": "Sell", "strongSell": "Strong Sell"}
+        analyst_rec = rec_map.get(rec_key, rec_key.title() if rec_key else "—")
+        n_analysts = info.get("numberOfAnalystOpinions", "—")
+        target_mean = _s("targetMeanPrice", ",.2f")
+        target_high = _s("targetHighPrice", ",.2f")
+        target_low  = _s("targetLowPrice",  ",.2f")
+
         return jsonify({
             "sym": sym,
             "name": info.get("longName") or info.get("shortName", sym),
@@ -1301,9 +1345,139 @@ def api_fundamentals(sym):
             "beta": _s("beta", ".2f"),
             "avg_volume": _mill("averageVolume"),
             "description": (info.get("longBusinessSummary", "") or "")[:400],
+            # Analyst
+            "analyst_rec": analyst_rec,
+            "n_analysts": str(n_analysts),
+            "target_mean": target_mean,
+            "target_high": target_high,
+            "target_low":  target_low,
         })
     except Exception as e:
         return jsonify({"sym": sym, "error": str(e)})
+
+
+@app.route("/api/earnings/<sym>")
+@login_required
+def api_earnings(sym):
+    """Quarterly EPS history (beat/miss vs estimate) via yfinance."""
+    sym = sym.upper()
+    try:
+        import yfinance as yf
+        import warnings; warnings.filterwarnings("ignore")
+        t = yf.Ticker(sym)
+        rows = []
+        try:
+            hist = t.earnings_history
+            if hist is not None and not hist.empty:
+                for _, row in hist.tail(8).iterrows():
+                    eps_est = row.get("epsEstimate", None)
+                    eps_act = row.get("epsActual", None)
+                    if eps_act is None:
+                        continue
+                    surprise = None
+                    if eps_est and eps_est != 0:
+                        surprise = round((eps_act - eps_est) / abs(eps_est) * 100, 1)
+                    rows.append({
+                        "date": str(row.name)[:10] if hasattr(row, "name") else "",
+                        "eps_est": round(float(eps_est), 2) if eps_est is not None else None,
+                        "eps_act": round(float(eps_act), 2),
+                        "surprise_pct": surprise,
+                        "beat": surprise is not None and surprise > 0,
+                    })
+        except Exception:
+            pass
+        # Fallback: quarterly_earnings DataFrame
+        if not rows:
+            try:
+                qe = t.quarterly_earnings
+                if qe is not None and not qe.empty:
+                    for idx, row in qe.tail(8).iterrows():
+                        rows.append({
+                            "date": str(idx)[:10],
+                            "eps_act": round(float(row.get("Earnings", 0)), 2),
+                            "revenue": round(float(row.get("Revenue", 0)) / 1e9, 2),
+                        })
+            except Exception:
+                pass
+        return jsonify({"sym": sym, "quarters": list(reversed(rows))})
+    except Exception as e:
+        return jsonify({"sym": sym, "quarters": [], "error": str(e)})
+
+
+@app.route("/api/portfolio-history")
+@login_required
+def api_portfolio_history():
+    """Return this user's daily portfolio value snapshots."""
+    user = get_user(session["username"])
+    snaps = (user or {}).get("portfolio_snapshots", [])
+    return jsonify({"snapshots": snaps[-90:]})  # 90 days
+
+
+# ─── Trade Journal ─────────────────────────────────────────────────────────────
+
+@app.route("/journal")
+@login_required
+def journal():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.journal_page(user, mkt)
+
+
+@app.route("/journal/add", methods=["POST"])
+@login_required
+def journal_add():
+    uname  = session["username"]
+    sym    = request.form.get("sym", "").upper().strip()
+    action = request.form.get("action", "NOTE")
+    price  = request.form.get("price", "").strip()
+    reason = request.form.get("reason", "").strip()
+    notes  = request.form.get("notes", "").strip()
+    if sym or notes:
+        entry = {
+            "id": int(time.time()),
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "sym": sym, "action": action,
+            "price": price, "reason": reason, "notes": notes,
+        }
+        with _users_lock:
+            users = load_users()
+            users[uname].setdefault("trade_journal", []).append(entry)
+            save_users(users)
+    return redirect("/journal")
+
+
+@app.route("/journal/delete", methods=["POST"])
+@login_required
+def journal_delete():
+    uname = session["username"]
+    try:
+        jid = int(request.form.get("jid", 0))
+    except (ValueError, TypeError):
+        jid = 0
+    with _users_lock:
+        users = load_users()
+        jl = users[uname].get("trade_journal", [])
+        users[uname]["trade_journal"] = [e for e in jl if e.get("id") != jid]
+        save_users(users)
+    return redirect("/journal")
+
+
+# ─── Watchlist Group routes ────────────────────────────────────────────────────
+
+@app.route("/watchlist/set-group", methods=["POST"])
+@login_required
+def watchlist_set_group():
+    sym   = request.form.get("sym", "").upper().strip()
+    group = request.form.get("group", "").strip()
+    if sym:
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            meta = users[uname].setdefault("watchlist_meta", {})
+            meta.setdefault(sym, {})["group"] = group
+            save_users(users)
+    return redirect("/watchlist")
 
 
 @app.route("/watchlist")
@@ -1318,7 +1492,8 @@ def watchlist_page():
 @app.route("/watchlist/add", methods=["POST"])
 @login_required
 def watchlist_add():
-    sym = request.form.get("sym", "").upper().strip()
+    sym   = request.form.get("sym", "").upper().strip()
+    group = request.form.get("group", "").strip()
     if sym:
         uname = session["username"]
         with _users_lock:
@@ -1327,6 +1502,9 @@ def watchlist_add():
             if sym not in wl:
                 wl.append(sym)
             users[uname]["watchlist"] = wl
+            if group:
+                meta = users[uname].setdefault("watchlist_meta", {})
+                meta.setdefault(sym, {})["group"] = group
             save_users(users)
     return redirect("/watchlist")
 
@@ -2110,6 +2288,23 @@ def tools():
     mkt, _, thb = _get_mkt()
     user = _inject_active_portfolio(get_user(session["username"]))
     return dw.tools_page(user, mkt, thb)
+
+
+@app.route("/tools/set-target", methods=["POST"])
+@login_required
+def tools_set_target():
+    uname = session["username"]
+    sym   = request.form.get("sym", "").upper().strip()
+    try:
+        pct = float(request.form.get("pct", 0) or 0)
+    except (ValueError, TypeError):
+        pct = 0.0
+    if sym:
+        with _users_lock:
+            users = load_users()
+            users[uname].setdefault("target_allocation", {})[sym] = round(pct, 1)
+            save_users(users)
+    return redirect("/stocks")
 
 # ─── Multi-Portfolio Routes ───────────────────────────────────────────────────
 

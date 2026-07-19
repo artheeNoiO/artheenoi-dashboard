@@ -331,6 +331,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
     nav = [
         ("stocks",    "📊", "Stocks"),
         ("watchlist", "👁",  "Watchlist"),
+        ("journal",   "📓", "Journal"),
         ("charts",    "📉", "Charts"),
         ("gold",      "🥇", "Gold"),
         ("crypto",    "₿",  "Crypto"),
@@ -865,6 +866,15 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
   </div>
 </div>
 
+<!-- Portfolio Value History Chart -->
+<div class="card" style="margin-bottom:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="card-hdr" style="margin-bottom:0">📈 Portfolio Value History</div>
+    <span style="font-size:11px;color:var(--muted)" id="hist-status">กำลังโหลด...</span>
+  </div>
+  <canvas id="portHistChart" style="width:100%;height:160px;display:block"></canvas>
+</div>
+
 <!-- ETF Cards -->
 <div class="g3" style="margin-bottom:16px">{etf_cards}</div>
 
@@ -879,6 +889,9 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
   <div>{_portfolio_attribution_html(port_rows)}</div>
   <div>{_econ_calendar_widget()}</div>
 </div>
+
+<!-- Rebalancing Advisor -->
+{_rebalancing_html(port_rows, total_val, user)}
 
 <!-- Portfolio -->
 <div class="card" style="margin-bottom:16px">
@@ -965,7 +978,54 @@ async function _refreshPrices() {{
   }} catch(e) {{ console.warn('Price refresh error', e); }}
   _startCountdown();
 }}
-document.addEventListener('DOMContentLoaded', () => {{ _startCountdown(); }});
+document.addEventListener('DOMContentLoaded', () => {{
+  _startCountdown();
+  // Load portfolio history chart
+  fetch('/api/portfolio-history').then(r=>r.json()).then(d=>{{
+    const snaps = d.snapshots || [];
+    const el = document.getElementById('hist-status');
+    if (!snaps.length) {{
+      if (el) el.textContent = 'ยังไม่มีข้อมูล (จะเริ่มเก็บหลัง market refresh ครั้งแรก)';
+      return;
+    }}
+    if (el) el.textContent = snaps.length + ' วัน';
+    const labels = snaps.map(s=>s.date);
+    const vals   = snaps.map(s=>s.value);
+    const first  = vals[0] || 1;
+    const last   = vals[vals.length-1] || 1;
+    const up     = last >= first;
+    const color  = up ? '#26a69a' : '#ef5350';
+    const ctx    = document.getElementById('portHistChart').getContext('2d');
+    new Chart(ctx, {{
+      type: 'line',
+      data: {{
+        labels,
+        datasets: [{{
+          data: vals,
+          borderColor: color,
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: true,
+          backgroundColor: ctx2 => {{
+            const g = ctx2.chart.ctx.createLinearGradient(0,0,0,160);
+            g.addColorStop(0, color+'44'); g.addColorStop(1, color+'00'); return g;
+          }}
+        }}]
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {{ legend: {{display:false}}, tooltip: {{
+          mode:'index', intersect:false,
+          callbacks: {{ label: ctx2 => `$${{ctx2.raw.toLocaleString()}}` }}
+        }} }},
+        scales: {{
+          x: {{ ticks: {{ color:'#787b86', maxTicksLimit:8, font:{{size:10}} }}, grid:{{color:'#363a45'}} }},
+          y: {{ ticks: {{ color:'#787b86', callback: v=>'$'+v.toLocaleString(), font:{{size:10}} }}, grid:{{color:'#363a45'}} }}
+        }}
+      }}
+    }});
+  }}).catch(()=>{{}});
+}});
 """
 
     return _base("stocks", "Stocks Dashboard", html, user, _ticker_html(market_data), js)
@@ -2920,6 +2980,7 @@ def _sidebar_html(user: dict, active: str) -> str:
     nav = [
         ("stocks",    "📊", "Stocks"),
         ("watchlist", "👁",  "Watchlist"),
+        ("journal",   "📓", "Journal"),
         ("charts",    "📉", "Charts"),
         ("gold",      "🥇", "Gold"),
         ("crypto",    "₿",  "Crypto"),
@@ -4699,7 +4760,15 @@ def _econ_calendar_widget() -> str:
 
 def watchlist_page(user: dict, market_data: dict) -> str:
     watchlist = user.get("watchlist", [])
+    wl_meta   = user.get("watchlist_meta", {})
     ticker_html = _ticker_html(market_data)
+
+    # Build groups
+    groups: dict = {}
+    for sym in watchlist:
+        g = (wl_meta.get(sym) or {}).get("group", "") or "All"
+        groups.setdefault(g, []).append(sym)
+    all_groups = sorted(groups.keys(), key=lambda x: (x == "All", x))
 
     cards = ""
     for sym in watchlist:
@@ -4727,12 +4796,14 @@ def watchlist_page(user: dict, market_data: dict) -> str:
         if ma50 and price < ma50:
             vs_ma50 = f'{(price/ma50-1)*100:.1f}%'
 
+        sym_group = (wl_meta.get(sym) or {}).get("group", "All")
         cards += f"""
-<div class="card" style="margin-bottom:12px">
+<div class="card" style="margin-bottom:12px" data-wl-group="{sym_group}">
   <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
     <div style="flex:1">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-weight:800;font-size:18px">{sym}</span>
+        {f'<span style="font-size:10px;background:var(--bg3);padding:2px 6px;border-radius:4px;color:var(--mid)">{sym_group}</span>' if sym_group != "All" else ""}
         {_signal_badge(action)}
       </div>
       <div style="font-size:22px;font-weight:800;margin-top:4px">${f'{price:,.2f}' if price else '—'}</div>
@@ -4778,13 +4849,23 @@ def watchlist_page(user: dict, market_data: dict) -> str:
     </div>
   </div>
 
+  <!-- Group tag + actions -->
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <form method="POST" action="/watchlist/set-group" style="display:flex;gap:4px;align-items:center">
+      <input type="hidden" name="sym" value="{sym}">
+      <input name="group" placeholder="Group tag..." value="{(wl_meta.get(sym) or {}).get('group','')}" style="width:120px;font-size:11px;padding:3px 7px">
+      <button class="btn btn-ghost btn-sm" type="submit">Tag</button>
+    </form>
+  </div>
   <!-- Expandable panels -->
   <div style="display:flex;gap:6px;flex-wrap:wrap">
     <button class="btn btn-ghost btn-sm" onclick="loadNews('{sym}',this)">📰 News</button>
     <button class="btn btn-ghost btn-sm" onclick="loadFundamentals('{sym}',this)">📊 Fundamentals</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadEarnings('{sym}',this)">📈 Earnings</button>
   </div>
   <div id="news-{sym}" style="display:none;margin-top:10px"></div>
   <div id="fund-{sym}" style="display:none;margin-top:10px"></div>
+  <div id="earn-{sym}" style="display:none;margin-top:10px"></div>
 </div>"""
 
     spark_js = ""
@@ -4796,16 +4877,29 @@ def watchlist_page(user: dict, market_data: dict) -> str:
             col = "#22c55e" if chg >= 0 else "#ef4444"
             spark_js += f"drawSpark('{sym}',{json.dumps(closes[-60:])},'{col}');"
 
+    # Group tabs HTML
+    group_tabs = ""
+    if len(all_groups) > 1:
+        group_tabs = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">'
+        group_tabs += '<button class="tf-btn active" id="gtab-__all__" onclick="filterGroup(\'__all__\',this)">All</button>'
+        for g in all_groups:
+            if g != "All":
+                group_tabs += f'<button class="tf-btn" id="gtab-{g}" onclick="filterGroup(\'{g}\',this)">{g} <span style="color:var(--muted)">({len(groups[g])})</span></button>'
+        group_tabs += "</div>"
+
     html = f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
   <div style="font-size:16px;font-weight:700">👁 Watchlist <span style="font-size:13px;color:var(--muted);font-weight:400">({len(watchlist)} stocks)</span></div>
   <form method="POST" action="/watchlist/add" style="display:flex;gap:6px">
-    <input name="sym" placeholder="เพิ่ม symbol เช่น NVDA" style="width:180px;text-transform:uppercase" maxlength="10">
+    <input name="sym" placeholder="Symbol เช่น NVDA" style="width:140px;text-transform:uppercase" maxlength="10">
+    <input name="group" placeholder="Group (opt)" style="width:120px">
     <button class="btn btn-primary btn-sm" type="submit">+ Add</button>
   </form>
 </div>
-
+{group_tabs}
+<div id="wl-cards">
 {cards or '<div class="card" style="text-align:center;color:var(--muted);padding:32px">ยังไม่มี watchlist — เพิ่ม symbol ด้านบน</div>'}
+</div>
 """
 
     js = f"""
@@ -4862,9 +4956,14 @@ async function loadFundamentals(sym, btn) {{
     const d = await r.json();
     if (d.error) {{ box.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${{d.error}}</span>`; return; }}
     const row = (label, val) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bg3);font-size:12px"><span style="color:var(--mid)">${{label}}</span><span style="font-weight:600">${{val}}</span></div>`;
+    const recCol = d.analyst_rec.includes('Buy') ? 'var(--green)' : d.analyst_rec.includes('Sell') ? 'var(--red)' : 'var(--gold)';
     box.innerHTML = `
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px">${{d.name}}</div>
-      <div style="font-size:11px;color:var(--mid);margin-bottom:8px">${{d.sector}} · ${{d.industry}}</div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">${{d.name}}</div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:10px">${{d.sector}} · ${{d.industry}}</div>
+      <div style="background:var(--bg3);border-radius:6px;padding:10px;margin-bottom:10px;display:flex;gap:16px;flex-wrap:wrap">
+        <div><div style="font-size:10px;color:var(--muted)">Analyst Consensus</div><div style="font-weight:800;color:${{recCol}}">${{d.analyst_rec}}</div><div style="font-size:10px;color:var(--muted)">${{d.n_analysts}} analysts</div></div>
+        <div><div style="font-size:10px;color:var(--muted)">Price Target</div><div style="font-weight:800">$${{d.target_mean}}</div><div style="font-size:10px;color:var(--muted)">L:$${{d.target_low}} H:$${{d.target_high}}</div></div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
         <div>${{row('Market Cap', d.market_cap)}}${{row('P/E (TTM)', d.pe)}}${{row('Forward P/E', d.forward_pe)}}${{row('EPS (TTM)', '$'+d.eps)}}${{row('Revenue', d.revenue)}}${{row('Rev Growth', d.revenue_growth)}}</div>
         <div>${{row('Gross Margin', d.gross_margin)}}${{row('ROE', d.roe)}}${{row('Debt/Equity', d.debt_equity)}}${{row('Dividend', d.dividend_yield)}}${{row('Beta', d.beta)}}${{row('Avg Volume', d.avg_volume)}}</div>
@@ -4875,9 +4974,186 @@ async function loadFundamentals(sym, btn) {{
     box.innerHTML = '<span style="color:var(--red);font-size:12px">โหลด fundamentals ไม่ได้</span>';
   }}
 }}
+
+async function loadEarnings(sym, btn) {{
+  const box = document.getElementById('earn-' + sym);
+  if (box.style.display !== 'none') {{ box.style.display = 'none'; return; }}
+  box.style.display = 'block';
+  box.innerHTML = '<span style="color:var(--muted);font-size:12px">⏳ กำลังโหลด earnings...</span>';
+  try {{
+    const r = await fetch('/api/earnings/' + sym);
+    const d = await r.json();
+    if (!d.quarters || !d.quarters.length) {{
+      box.innerHTML = '<span style="color:var(--muted);font-size:12px">ไม่พบข้อมูล EPS</span>';
+      return;
+    }}
+    const rows = d.quarters.map(q => {{
+      const beat = q.beat;
+      const col  = beat ? 'var(--green)' : 'var(--red)';
+      const icon = beat ? '✅' : '❌';
+      const surp = q.surprise_pct != null ? `(${{q.surprise_pct > 0 ? '+' : ''}}${{q.surprise_pct}}%)` : '';
+      return `<tr>
+        <td style="color:var(--mid);font-size:11px">${{q.date}}</td>
+        <td style="font-size:12px">${{q.eps_est != null ? '$'+q.eps_est : '—'}}</td>
+        <td style="font-weight:700;color:${{col}};font-size:12px">$${{q.eps_act}} ${{icon}}</td>
+        <td style="color:${{col}};font-size:11px">${{surp}}</td>
+      </tr>`;
+    }}).join('');
+    box.innerHTML = `
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="font-size:10px;color:var(--muted)"><th style="text-align:left;padding:4px 6px">Quarter</th><th style="text-align:left;padding:4px 6px">Est EPS</th><th style="text-align:left;padding:4px 6px">Actual EPS</th><th style="text-align:left;padding:4px 6px">Surprise</th></tr></thead>
+        <tbody>${{rows}}</tbody>
+      </table>`;
+  }} catch(e) {{
+    box.innerHTML = '<span style="color:var(--red);font-size:12px">โหลด earnings ไม่ได้</span>';
+  }}
+}}
+
+function filterGroup(group, btn) {{
+  document.querySelectorAll('[data-wl-group]').forEach(el => {{
+    el.style.display = (group === '__all__' || el.dataset.wlGroup === group) ? '' : 'none';
+  }});
+  document.querySelectorAll('.tf-btn[id^="gtab-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}}
 """
 
     return _base("watchlist", "Watchlist", html, user, ticker_html, js)
+
+
+# ─── Trade Journal Page ──────────────────────────────────────────────────────
+
+def journal_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    entries = list(reversed(user.get("trade_journal", [])))
+
+    action_opts = "".join(
+        f'<option value="{a}">{a}</option>'
+        for a in ["BUY", "SELL", "WATCH", "NOTE", "EXIT", "DCA"]
+    )
+
+    table_rows = ""
+    for e in entries:
+        act = e.get("action", "NOTE")
+        col_map = {"BUY": "var(--green)", "SELL": "var(--red)", "WATCH": "var(--gold)",
+                   "EXIT": "var(--red)", "DCA": "var(--teal)", "NOTE": "var(--mid)"}
+        col = col_map.get(act, "var(--mid)")
+        table_rows += f"""<tr>
+          <td style="color:var(--muted);font-size:11px">{e.get('date','')}</td>
+          <td><span style="font-weight:700">{e.get('sym','—')}</span></td>
+          <td><span style="color:{col};font-weight:700;font-size:11px">{act}</span></td>
+          <td style="font-size:12px">{e.get('price','—')}</td>
+          <td style="font-size:12px;color:var(--teal)">{e.get('reason','')}</td>
+          <td style="font-size:12px;color:var(--mid)">{e.get('notes','')}</td>
+          <td>
+            <form method="POST" action="/journal/delete" style="margin:0">
+              <input type="hidden" name="jid" value="{e.get('id',0)}">
+              <button class="btn btn-danger btn-sm" type="submit">✕</button>
+            </form>
+          </td>
+        </tr>"""
+
+    html = f"""
+<!-- Add Entry Form -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">📓 บันทึก Trade ใหม่</div>
+  <form method="POST" action="/journal/add">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbol</div>
+        <input name="sym" placeholder="เช่น NVDA" style="width:100%;text-transform:uppercase" maxlength="10">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Action</div>
+        <select name="action" style="width:100%">{action_opts}</select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Price</div>
+        <input name="price" placeholder="ราคา (opt)" style="width:100%">
+      </div>
+      <div style="grid-column:span 2">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">เหตุผล / Thesis</div>
+        <input name="reason" placeholder="ทำไมถึงเปิด/ปิด position นี้..." style="width:100%">
+      </div>
+      <div style="grid-column:span 2">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">โน้ตเพิ่มเติม</div>
+        <input name="notes" placeholder="บันทึกเพิ่มเติม..." style="width:100%">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">💾 บันทึก</button>
+  </form>
+</div>
+
+<!-- Journal Table -->
+<div class="card">
+  <div class="card-hdr">📋 Journal ({len(entries)} entries)</div>
+  {f'''<div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr>
+      <th>Date</th><th>Symbol</th><th>Action</th><th>Price</th><th>เหตุผล</th><th>โน้ต</th><th></th>
+    </tr></thead>
+    <tbody>{table_rows}</tbody>
+  </table>
+  </div>''' if entries else '<div style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีบันทึก — เพิ่ม entry ด้านบน</div>'}
+</div>
+"""
+
+    return _base("journal", "Trade Journal", html, user, ticker_html, "")
+
+
+# ─── Rebalancing Advisor (as a helper for tools page) ────────────────────────
+
+def _rebalancing_html(port_rows: list, total_val: float, user: dict) -> str:
+    """Show current vs target allocation, suggest buy/sell."""
+    if not port_rows or total_val <= 0:
+        return ""
+    target_alloc = user.get("target_allocation", {})
+    rows = ""
+    for r in sorted(port_rows, key=lambda x: -x["val"]):
+        sym = r["sym"]
+        cur_pct = r["val"] / total_val * 100
+        tgt_pct = float(target_alloc.get(sym, 0))
+        diff_pct = tgt_pct - cur_pct
+        diff_val = diff_pct / 100 * total_val
+        if tgt_pct == 0:
+            action_html = '<span style="color:var(--muted);font-size:11px">ไม่ได้ตั้ง target</span>'
+        elif abs(diff_pct) < 1:
+            action_html = '<span style="color:var(--teal);font-size:11px">✅ On target</span>'
+        elif diff_val > 0:
+            shares_to_buy = diff_val / r["price"] if r["price"] else 0
+            action_html = f'<span style="color:var(--green);font-weight:700;font-size:11px">BUY ~{shares_to_buy:.2f} sh (${diff_val:,.0f})</span>'
+        else:
+            shares_to_sell = abs(diff_val) / r["price"] if r["price"] else 0
+            action_html = f'<span style="color:var(--red);font-weight:700;font-size:11px">SELL ~{shares_to_sell:.2f} sh (${abs(diff_val):,.0f})</span>'
+
+        rows += f"""<tr>
+          <td><span style="font-weight:700">{sym}</span></td>
+          <td>${r['val']:,.0f}</td>
+          <td style="color:var(--teal)">{cur_pct:.1f}%</td>
+          <td>
+            <form method="POST" action="/tools/set-target" style="display:inline-flex;gap:4px">
+              <input type="hidden" name="sym" value="{sym}">
+              <input type="number" name="pct" value="{tgt_pct:.0f}" min="0" max="100" step="1" style="width:56px;font-size:11px;padding:2px 5px">
+              <button class="btn btn-ghost btn-sm" type="submit">%</button>
+            </form>
+          </td>
+          <td>{action_html}</td>
+        </tr>"""
+
+    total_target = sum(float(v) for v in target_alloc.values())
+    target_sum_warning = f'<div style="color:var(--red);font-size:12px;margin-bottom:8px">⚠️ Target รวมกัน {total_target:.0f}% (ควรเป็น 100%)</div>' if target_alloc and abs(total_target - 100) > 2 else ""
+
+    return f"""<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">⚖️ Rebalancing Advisor</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:8px">ตั้ง Target % ต่อหุ้น แล้วระบบจะคำนวณว่าต้องซื้อ/ขายเท่าไหร่</div>
+  {target_sum_warning}
+  <div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr><th>Symbol</th><th>Value</th><th>Current %</th><th>Target %</th><th>แนะนำ</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  </div>
+</div>"""
 
 
 LOADING_PAGE = """<!DOCTYPE html>
