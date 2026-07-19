@@ -33,8 +33,13 @@ ETFS   = ["QQQ", "IVV", "DIA"]
 GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
 MARKETAUX_KEY    = os.environ.get("MARKETAUX_KEY", "")
-OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")   # system-wide key
 _ai_cache: dict  = {}   # username → {"text": ..., "ts": datetime}
+
+def _get_user_or_key(username: str) -> str:
+    """คืน OpenRouter key ของ user ก่อน ถ้าไม่มีจึงใช้ system key"""
+    user = get_user(username)
+    return (user or {}).get("openrouter_key", "") or OPENROUTER_KEY
 
 # ─── Password ────────────────────────────────────────────────────────────────
 
@@ -445,6 +450,25 @@ input:focus{border-color:#d97757;outline:none}
         <button type="button" class="btn btn-add" onclick="addWl()">+ เพิ่ม</button>
       </div>
       <button type="submit" class="btn btn-primary">💾 บันทึก Watchlist</button>
+    </form>
+  </div>
+
+  <!-- BYOK: OpenRouter Key -->
+  <div class="card">
+    <h2>🤖 OpenRouter API Key (ของตัวเอง)</h2>
+    <p style="font-size:12px;color:#64748b;margin-bottom:14px">
+      ใส่ key ตัวเองเพื่อให้ ArtheeNoi ฉลาดขึ้น (Chat + AI Analysis จะใช้ key ของคุณ)<br>
+      ถ้าไม่ใส่ → ใช้ system key (อาจถูกจำกัดการใช้งาน) &nbsp;|&nbsp;
+      <a href="https://openrouter.ai/keys" target="_blank" style="color:#d97757">สมัคร OpenRouter ฟรี →</a>
+    </p>
+    <form method="POST" action="/settings/api-key">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" name="openrouter_key"
+               value="{{ openrouter_key }}"
+               placeholder="sk-or-v1-..."
+               style="flex:1;background:#111d2e;border:1px solid #243040;border-radius:8px;color:#e2e8f0;font-size:13px;padding:10px 14px">
+        <button type="submit" class="btn btn-primary">💾 บันทึก</button>
+      </div>
     </form>
   </div>
 
@@ -866,12 +890,34 @@ def ai_page():
 def ai_analyze():
     import dashboard_web as dw
     mkt, macro, thb = _get_mkt()
-    uname = session["username"]
-    user  = get_user(uname)
-    text  = dw._ai_analyze(mkt, user, OPENROUTER_KEY)
+    uname   = session["username"]
+    user    = get_user(uname)
+    or_key  = _get_user_or_key(uname)
+    text    = dw._ai_analyze(mkt, user, or_key)
     if text:
         _ai_cache[uname] = {"text": text, "ts": datetime.now()}
     return redirect("/ai")
+
+# ─── Settings: BYOK + Agent status ───────────────────────────────────────────
+
+@app.route("/settings/api-key", methods=["POST"])
+@login_required
+def save_api_key():
+    uname = session["username"]
+    key   = request.form.get("openrouter_key", "").strip()
+    update_user_fields(uname, {"openrouter_key": key})
+    msg = "บันทึก API Key แล้ว — ArtheeNoi จะฉลาดขึ้นทันที 🎉" if key else "ลบ API Key แล้ว (ใช้ system key)"
+    return redirect(f"/settings?msg={msg}&mt=ok")
+
+@app.route("/agent/status")
+@login_required
+def agent_status():
+    try:
+        import artheenoi_agent
+        state = artheenoi_agent.get_state()
+    except Exception:
+        state = {"running": False, "error": "agent module ไม่พบ"}
+    return jsonify(state)
 
 @app.route("/chat")
 @login_required
@@ -897,21 +943,18 @@ def api_chat():
         return jsonify({"reply": "ส่งข้อความมาด้วยครับ"})
 
     history = session.get("chat_history", [])
-
-    # Build system prompt with live portfolio context
     sys_prompt = dw._artheenoi_system_prompt(user, mkt, thb)
-
-    # Keep last 20 turns to limit token cost
     recent = history[-20:]
     messages = [{"role": m["role"], "content": m["content"]} for m in recent]
     messages.append({"role": "user", "content": message})
 
     reply = ""
-    if OPENROUTER_KEY:
+    or_key = _get_user_or_key(uname)   # ใช้ key ของ user ก่อน
+    if or_key:
         try:
             r = req.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
+                headers={"Authorization": f"Bearer {or_key}",
                          "Content-Type": "application/json",
                          "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
                 json={"model": "claude-haiku-4-5-20251001",
@@ -925,7 +968,6 @@ def api_chat():
             log.warning(f"[Chat] OpenRouter error: {e}")
             reply = "⚠️ เชื่อมต่อ AI ไม่ได้ตอนนี้ กรุณาลองใหม่"
     else:
-        # Rule-based fallback เมื่อไม่มี key
         reply = _rule_based_reply(message, user, mkt, thb)
 
     # Save to session history
@@ -1026,6 +1068,7 @@ def settings():
         portfolio=user.get("portfolio", {}),
         watchlist=user.get("watchlist", []),
         is_admin=user.get("role") == "admin",
+        openrouter_key=user.get("openrouter_key", ""),
         msg=request.args.get("msg"),
         msg_type=request.args.get("mt", "ok"),
     )
@@ -1164,6 +1207,18 @@ def admin_refresh_market():
         t.start()
     return redirect("/admin?msg=เริ่ม+refresh+ข้อมูลตลาดแล้ว+รอ+2-3+นาที&mt=ok")
 
+@app.route("/ping")
+def ping():
+    """UptimeRobot keep-alive endpoint — ไม่ต้อง login"""
+    try:
+        import artheenoi_agent
+        state = artheenoi_agent.get_state()
+        agent_ok = state.get("running", False)
+    except Exception:
+        agent_ok = False
+    return jsonify({"status": "ok", "agent": agent_ok,
+                    "ts": datetime.now().isoformat()})
+
 @app.route("/status")
 @login_required
 def status():
@@ -1198,5 +1253,16 @@ if __name__ == "__main__":
 
     # Initial market data fetch (async)
     threading.Thread(target=_do_market_refresh, daemon=True).start()
+
+    # ArtheeNoi 24/7 Agent
+    try:
+        import artheenoi_agent
+        def _mkt_data_fn():
+            with _mkt_lock:
+                return _mkt_cache.get("data") or {}
+        artheenoi_agent.start(load_users, _mkt_data_fn)
+        log.info("ArtheeNoi Agent started ✅")
+    except Exception as e:
+        log.warning(f"ArtheeNoi Agent ไม่สามารถ start: {e}")
 
     app.run(host="0.0.0.0", port=PORT, debug=False)
