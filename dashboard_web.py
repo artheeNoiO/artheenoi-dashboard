@@ -2116,7 +2116,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
           <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'}">{'+'if chg>=0 else ''}{chg:.2f}%</span></td>
           <td>{_rsi_bar(rsi)}</td>
           <td>
-            <div style="font-size:22px;font-weight:900;color:{'var(--teal)' if score>=70 else 'var(--gold)' if score>=50 else 'var(--muted)'}">{score or '—'}</div>
+            <div style="font-size:22px;font-weight:900;color:{'var(--teal)' if (score or 0)>=70 else 'var(--gold)' if (score or 0)>=50 else 'var(--muted)'}">{score or '—'}</div>
             {pct52}
           </td>
           <td>{_action_badge(action)}</td>
