@@ -90,7 +90,10 @@ def load_users() -> dict:
 
 def _save_users_raw(users: dict):
     data = {k: {f: v for f, v in u.items() if f != "dashboard_html"}
-            for k, u in users.items()}
+            for k, u in users.items() if isinstance(u, dict) and not k.startswith("_")}
+    # Preserve special root-level keys (not user records)
+    if "_invite_codes" in users:
+        data["_invite_codes"] = users["_invite_codes"]
     USERS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def save_users(users: dict):
@@ -107,6 +110,51 @@ def update_user_fields(username: str, fields: dict):
         if username in users:
             users[username].update(fields)
             save_users(users)
+
+# ─── Invite Codes ─────────────────────────────────────────────────────────────
+
+def get_invite_codes() -> list:
+    with _users_lock:
+        data = load_users()
+    return data.get("_invite_codes", [])
+
+def save_invite_code(code: str):
+    with _users_lock:
+        users = load_users()
+        codes = users.get("_invite_codes", [])
+        codes.append({"code": code, "used": False, "created": datetime.now().isoformat()})
+        users["_invite_codes"] = codes
+        _save_users_raw(users)
+
+def use_invite_code(code: str) -> bool:
+    with _users_lock:
+        users = load_users()
+        codes = users.get("_invite_codes", [])
+        for c in codes:
+            if c["code"] == code and not c["used"]:
+                c["used"] = True
+                users["_invite_codes"] = codes
+                _save_users_raw(users)
+                return True
+    return False
+
+# ─── Multi-Portfolio Helpers ───────────────────────────────────────────────────
+
+def _get_active_portfolio(user: dict) -> dict:
+    """Return the currently active portfolio dict (backward-compatible)."""
+    ports = user.get("portfolios")
+    if ports and isinstance(ports, dict):
+        active = user.get("active_portfolio", "default")
+        return ports.get(active, ports.get("default", {}))
+    return user.get("portfolio", {})
+
+def _inject_active_portfolio(user: dict) -> dict:
+    """Return a copy of user with 'portfolio' set to the active portfolio."""
+    if user is None:
+        return {}
+    u = dict(user)
+    u["portfolio"] = _get_active_portfolio(u)
+    return u
 
 # ─── Auth Decorators ──────────────────────────────────────────────────────────
 
@@ -170,7 +218,13 @@ def _all_user_symbols() -> list:
     with _users_lock:
         users = load_users()
     for u in users.values():
+        if not isinstance(u, dict):
+            continue
         syms.update(u.get("portfolio", {}).keys())
+        # Multi-portfolio support
+        for p in u.get("portfolios", {}).values():
+            if isinstance(p, dict):
+                syms.update(p.keys())
         syms.update(u.get("watchlist", []))
     return list(syms)
 
@@ -267,7 +321,7 @@ def _build_port_rows(user: dict, mkt: dict, thb: float):
     total_val  = 0.0
     total_cost = 0.0
 
-    for sym, info in user.get("portfolio", {}).items():
+    for sym, info in _get_active_portfolio(user).items():
         d = mkt.get(sym, {})
         if not d.get("price"):
             continue
@@ -491,6 +545,20 @@ input:focus{border-color:#d97757;outline:none}
     </form>
   </div>
 
+  <!-- CSV Import / Export -->
+  <div class="card">
+    <h2>📥 Import / Export Portfolio (CSV)</h2>
+    <p style="font-size:12px;color:#64748b;margin-bottom:14px">
+      รูปแบบ CSV: <code style="background:#111d2e;padding:2px 6px;border-radius:4px">Symbol,Shares,Cost</code> (ต้องมี header row)<br>
+      ตัวอย่าง: <code style="background:#111d2e;padding:2px 6px;border-radius:4px">NVDA,2,850.00</code>
+    </p>
+    <form method="POST" action="/settings/import-csv" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input type="file" name="csv_file" accept=".csv" style="flex:1;background:#111d2e;border:1px solid #243040;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px">
+      <button type="submit" class="btn btn-primary">📥 Import</button>
+    </form>
+    <a href="/settings/export-csv" class="btn btn-secondary">📤 Export CSV ปัจจุบัน</a>
+  </div>
+
   <!-- Change Password -->
   <div class="card">
     <h2>🔒 เปลี่ยน Password</h2>
@@ -592,7 +660,7 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
         <td><b>{{ uname }}</b></td>
         <td>{{ u.display_name }}</td>
         <td><span class="badge {% if u.role=='admin' %}admin-badge{% else %}user-badge{% endif %}">{{ u.role }}</span></td>
-        <td style="color:#64748b">{{ u.portfolio|length }} หุ้น</td>
+        <td style="color:#64748b">{{ (u.get('portfolio') or {})|length }} หุ้น</td>
         <td style="color:#64748b;font-size:11px">{{ u.last_updated or 'ยังไม่ refresh' }}</td>
         <td>
           {% if uname != current_user %}
@@ -645,6 +713,31 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
     </form>
   </div>
 
+  <!-- Invite Codes -->
+  <div class="card">
+    <h2>🔗 Invite Links (Self-Registration)</h2>
+    <p style="font-size:12px;color:#64748b;margin-bottom:14px">สร้างลิงก์เชิญให้เพื่อน — ใช้ได้ครั้งเดียว</p>
+    <button type="button" class="btn btn-primary" onclick="genInvite()">🔗 สร้าง Invite Link ใหม่</button>
+    <div id="inviteResult" style="margin-top:12px;font-size:13px"></div>
+    {% if invite_codes %}
+    <table style="margin-top:14px;width:100%;border-collapse:collapse">
+      <thead><tr><th style="text-align:left;font-size:11px;color:#64748b;padding:0 8px 6px">Code</th><th style="text-align:left;font-size:11px;color:#64748b;padding:0 8px 6px">Status</th><th style="text-align:left;font-size:11px;color:#64748b;padding:0 8px 6px">Created</th></tr></thead>
+      <tbody>
+      {% for ic in invite_codes|reverse %}
+      <tr style="border-bottom:1px solid #1c2a3a">
+        <td style="padding:7px 8px;font-family:monospace;font-size:12px;color:#e2e8f0">{{ ic.code }}</td>
+        <td style="padding:7px 8px">
+          {% if ic.used %}<span style="color:#64748b;font-size:11px">✓ ใช้แล้ว</span>
+          {% else %}<span style="color:#10b981;font-size:11px;font-weight:700">● พร้อมใช้</span>{% endif %}
+        </td>
+        <td style="padding:7px 8px;font-size:11px;color:#64748b">{{ ic.created[:16] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
   <!-- Market Cache Status -->
   <div class="card">
     <h2>📡 สถานะข้อมูลตลาด</h2>
@@ -658,6 +751,21 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
     </form>
   </div>
 </div>
+<script>
+async function genInvite() {
+  const r = await fetch('/admin/invite', {method:'POST'});
+  const d = await r.json();
+  const box = document.getElementById('inviteResult');
+  const url = window.location.origin + d.url;
+  box.innerHTML = '<div style="background:#0f1623;border:1px solid #1c2a3a;border-radius:8px;padding:12px;margin-top:8px">'
+    + '<div style="font-size:11px;color:#64748b;margin-bottom:6px">ลิงก์ใหม่ (ใช้ได้ 1 ครั้ง):</div>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<code style="flex:1;font-size:12px;color:#10b981;word-break:break-all">' + url + '</code>'
+    + '<button onclick="navigator.clipboard.writeText(\''+url+'\').then(()=>this.textContent=\'✓\')" style="background:#d97757;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Copy</button>'
+    + '</div></div>';
+  setTimeout(() => location.reload(), 3000);
+}
+</script>
 </body></html>"""
 
 _LOADING_HTML = """<!DOCTYPE html>
@@ -739,7 +847,7 @@ def stocks():
     if not _require_mkt():
         return dw.LOADING_PAGE
     mkt, macro, thb = _get_mkt()
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     if not user:
         return redirect("/logout")
     return dw.stocks_page(user, mkt, macro, thb)
@@ -751,7 +859,7 @@ def gold():
     if not _require_mkt():
         return dw.LOADING_PAGE
     mkt, _, _ = _get_mkt()
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.gold_page(user, mkt)
 
 @app.route("/crypto")
@@ -761,7 +869,7 @@ def crypto():
     if not _require_mkt():
         return dw.LOADING_PAGE
     mkt, _, _ = _get_mkt()
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.crypto_page(user, mkt)
 
 @app.route("/dca")
@@ -771,7 +879,7 @@ def dca():
     if not _require_mkt():
         return dw.LOADING_PAGE
     mkt, _, _ = _get_mkt()
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.dca_page(user, mkt)
 
 @app.route("/news")
@@ -798,7 +906,7 @@ def signals():
     if not _require_mkt():
         return dw.LOADING_PAGE
     mkt, _, thb = _get_mkt()
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.signals_page(user, mkt, thb)
 
 # ─── Paper Trading ────────────────────────────────────────────────────────────
@@ -813,7 +921,7 @@ def paper():
     import dashboard_web as dw
     mkt, _, thb = _get_mkt()
     uname = session["username"]
-    user  = get_user(uname)
+    user  = _inject_active_portfolio(get_user(uname))
     trades = _get_paper_trades(uname)
     return dw.paper_page(user, mkt, thb, trades)
 
@@ -913,7 +1021,7 @@ def ai_page():
     import dashboard_web as dw
     mkt, macro, thb = _get_mkt()
     uname = session["username"]
-    user  = get_user(uname)
+    user  = _inject_active_portfolio(get_user(uname))
     cached = (_ai_cache.get(uname) or {}).get("text", "")
     return dw.ai_page(user, mkt, macro, thb, OPENROUTER_KEY, cached)
 
@@ -1020,7 +1128,7 @@ def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
     """Simple rule-based chat fallback when no OpenRouter key."""
     import dashboard_web as dw
     msg_l = msg.lower()
-    port  = user.get("portfolio", {})
+    port  = _get_active_portfolio(user)
 
     if any(w in msg_l for w in ["พอร์ต", "portfolio", "p&l", "กำไร", "ขาดทุน"]):
         total_v = total_c = 0
@@ -1072,7 +1180,7 @@ def api_prices():
     import dashboard_web as dw
     mkt, _, thb = _get_mkt()
     user  = get_user(session["username"])
-    syms  = list(user.get("portfolio", {}).keys()) + user.get("watchlist", [])
+    syms  = list(_get_active_portfolio(user).keys()) + user.get("watchlist", [])
     syms += ETFS + [GOLD, CRYPTO]
     data  = {"_thb": round(thb, 2)}
     for sym in set(syms):
@@ -1122,7 +1230,7 @@ def heatmap():
     mkt, macro, _ = _get_mkt()
     if not _require_mkt():
         return dw.LOADING_PAGE
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.heatmap_page(user, mkt, macro)
 
 
@@ -1133,7 +1241,7 @@ def analytics():
     mkt, _, thb = _get_mkt()
     if not _require_mkt():
         return dw.LOADING_PAGE
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.analytics_page(user, mkt, thb)
 
 
@@ -1144,7 +1252,7 @@ def scanner():
     mkt, _, _ = _get_mkt()
     if not _require_mkt():
         return dw.LOADING_PAGE
-    user = get_user(session["username"])
+    user = _inject_active_portfolio(get_user(session["username"]))
     return dw.scanner_page(user, mkt)
 
 @app.route("/refresh", methods=["POST", "GET"])
@@ -1171,7 +1279,7 @@ def settings():
     return render_template_string(
         _SETTINGS_TPL,
         display_name=user["display_name"],
-        portfolio=user.get("portfolio", {}),
+        portfolio=_get_active_portfolio(user),
         watchlist=user.get("watchlist", []),
         is_admin=user.get("role") == "admin",
         openrouter_key=user.get("openrouter_key", ""),
@@ -1197,7 +1305,16 @@ def save_portfolio():
         except (ValueError, TypeError):
             pass
 
-    update_user_fields(uname, {"portfolio": portfolio, "dashboard_html": None})
+    with _users_lock:
+        users = load_users()
+        u = users[uname]
+        if "portfolios" in u:
+            active = u.get("active_portfolio", "default")
+            u.setdefault("portfolios", {})[active] = portfolio
+        else:
+            u["portfolio"] = portfolio
+        u["dashboard_html"] = None
+        save_users(users)
     return redirect("/settings?msg=บันทึก+Portfolio+แล้ว&mt=ok")
 
 @app.route("/settings/watchlist", methods=["POST"])
@@ -1234,7 +1351,11 @@ def change_password():
 @admin_required
 def admin():
     with _users_lock:
-        users = load_users()
+        raw_users = load_users()
+    # Filter only real user entries (exclude special keys like _invite_codes)
+    users = {k: v for k, v in raw_users.items()
+             if isinstance(v, dict) and not k.startswith("_")}
+    invite_codes = raw_users.get("_invite_codes", [])
     with _mkt_lock:
         upd   = _mkt_cache.get("updated")
         count = len(_mkt_cache.get("data") or {})
@@ -1248,6 +1369,7 @@ def admin():
         mkt_updated=upd.strftime("%Y-%m-%d %H:%M") if upd else None,
         mkt_count=count,
         refreshing=_refreshing.is_set(),
+        invite_codes=invite_codes,
     )
 
 @app.route("/admin/create", methods=["POST"])
@@ -1521,7 +1643,8 @@ def portfolio_add_quick():
     uname = session["username"]
     with _users_lock:
         users = load_users()
-        port = users[uname].setdefault("portfolio", {})
+        u = users[uname]
+        port = _get_active_portfolio(u)
         if sym in port:
             # Weighted average cost on re-add
             old_shares = port[sym]["shares"]
@@ -1531,6 +1654,12 @@ def portfolio_add_quick():
             port[sym]["shares"] = round(new_shares, 4)
         else:
             port[sym] = {"shares": round(shares, 4), "cost": round(cost, 4)}
+        # Save back to correct location
+        if "portfolios" in u:
+            active = u.get("active_portfolio", "default")
+            u.setdefault("portfolios", {})[active] = port
+        else:
+            u["portfolio"] = port
         save_users(users)
     return redirect("/stocks")
 
@@ -1683,6 +1812,269 @@ def api_backtest():
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)})
 
+
+# ─── Self-Registration ───────────────────────────────────────────────────────
+
+def _register_page(code="", error=""):
+    err_html = (f'<div style="color:#ef5350;margin-bottom:12px;font-size:13px">⚠️ {error}</div>'
+                if error else "")
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>สมัครสมาชิก — ArtheeNoi</title>
+    <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{background:#131722;color:#d1d4dc;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}}
+    .box{{background:#1e222d;border:1px solid #363a45;border-radius:12px;padding:32px;width:360px}}
+    h2{{color:#2dd4bf;margin-bottom:4px;font-size:18px}} p{{color:#787b86;font-size:13px;margin-bottom:20px}}
+    label{{font-size:12px;color:#787b86;display:block;margin-bottom:4px}}
+    input{{width:100%;background:#2a2e39;border:1px solid #363a45;color:#d1d4dc;border-radius:6px;padding:9px 12px;font-size:14px;margin-bottom:14px;outline:none}}
+    input:focus{{border-color:#2dd4bf}}
+    button{{width:100%;background:#2dd4bf;color:#000;border:none;border-radius:6px;padding:10px;font-weight:700;cursor:pointer;font-size:14px}}
+    button:hover{{filter:brightness(1.1)}}
+    a{{color:#2dd4bf;font-size:13px;text-decoration:none}}
+    </style></head>
+    <body><div class="box">
+    <h2>📊 ArtheeNoi</h2><p>สร้างบัญชีด้วยรหัสเชิญ</p>
+    {err_html}
+    <form method="POST">
+    <input type="hidden" name="code" value="{code}">
+    <label>รหัสเชิญ</label>
+    <input value="{code}" readonly style="color:#787b86;cursor:default">
+    <label>Username</label><input name="username" required placeholder="เช่น somchai">
+    <label>ชื่อที่แสดง</label><input name="display_name" placeholder="เช่น สมชาย">
+    <label>Password (อย่างน้อย 6 ตัว)</label>
+    <input type="password" name="password" required>
+    <button type="submit">สมัครสมาชิก</button>
+    </form>
+    <div style="margin-top:14px;text-align:center"><a href="/login">← กลับหน้า Login</a></div>
+    </div></body></html>"""
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    code = request.args.get("code", "") or request.form.get("code", "")
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "")
+        display  = request.form.get("display_name", "").strip() or username
+        if not use_invite_code(code):
+            return _register_page(code, error="รหัสเชิญไม่ถูกต้องหรือถูกใช้แล้ว")
+        if not username or len(password) < 6:
+            use_invite_code_reverse = True  # need to restore code
+            # Restore code since we consumed it
+            with _users_lock:
+                users = load_users()
+                codes = users.get("_invite_codes", [])
+                for c in codes:
+                    if c["code"] == code and c["used"]:
+                        c["used"] = False
+                        break
+                users["_invite_codes"] = codes
+                _save_users_raw(users)
+            return _register_page(code, error="username ต้องไม่ว่าง, password ต้องมีอย่างน้อย 6 ตัว")
+        with _users_lock:
+            users = load_users()
+            real_users = {k: v for k, v in users.items()
+                         if isinstance(v, dict) and not k.startswith("_")}
+            if username in real_users:
+                # Restore code
+                codes = users.get("_invite_codes", [])
+                for c in codes:
+                    if c["code"] == code and c["used"]:
+                        c["used"] = False; break
+                users["_invite_codes"] = codes
+                _save_users_raw(users)
+                return _register_page(code, error=f"username '{username}' มีแล้ว")
+            users[username] = {
+                "password_hash": _hash(password),
+                "display_name":  display,
+                "role":          "user",
+                "portfolio":     {},
+                "watchlist":     ["NVDA", "MSFT", "GOOGL", "META", "AMZN"],
+            }
+            _save_users_raw(users)
+        return redirect("/login?registered=1")
+    return _register_page(code)
+
+@app.route("/admin/invite", methods=["POST"])
+@admin_required
+def admin_invite():
+    import secrets
+    code = secrets.token_urlsafe(8)
+    save_invite_code(code)
+    return jsonify({"code": code, "url": f"/register?code={code}"})
+
+# ─── Dividend Tracker ─────────────────────────────────────────────────────────
+
+@app.route("/dividends")
+@login_required
+def dividends():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.dividends_page(user, mkt, thb)
+
+@app.route("/dividends/add", methods=["POST"])
+@login_required
+def dividends_add():
+    sym    = request.form.get("sym", "").upper().strip()
+    date   = request.form.get("date", "")
+    try:
+        amount = float(request.form.get("amount", 0) or 0)
+        shares = float(request.form.get("shares", 0) or 0)
+    except (ValueError, TypeError):
+        amount = shares = 0.0
+    if sym and amount > 0 and shares > 0:
+        entry = {"sym": sym, "date": date, "amount_usd": round(amount, 4),
+                 "shares": round(shares, 4), "total": round(amount * shares, 4)}
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            users[uname].setdefault("dividends", []).append(entry)
+            save_users(users)
+    return redirect("/dividends")
+
+@app.route("/dividends/delete", methods=["POST"])
+@login_required
+def dividends_delete():
+    try:
+        idx = int(request.form.get("idx", -1))
+    except (ValueError, TypeError):
+        idx = -1
+    uname = session["username"]
+    with _users_lock:
+        users = load_users()
+        divs = users[uname].get("dividends", [])
+        if 0 <= idx < len(divs):
+            divs.pop(idx)
+        users[uname]["dividends"] = divs
+        save_users(users)
+    return redirect("/dividends")
+
+# ─── Tools Page ───────────────────────────────────────────────────────────────
+
+@app.route("/tools")
+@login_required
+def tools():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.tools_page(user, mkt, thb)
+
+# ─── Multi-Portfolio Routes ───────────────────────────────────────────────────
+
+@app.route("/portfolio/switch", methods=["POST"])
+@login_required
+def portfolio_switch():
+    name = request.form.get("name", "default").strip()
+    update_user_fields(session["username"], {"active_portfolio": name})
+    return redirect("/stocks")
+
+@app.route("/portfolio/new", methods=["POST"])
+@login_required
+def portfolio_new():
+    name = request.form.get("name", "").strip()
+    if name:
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            u = users[uname]
+            # Migrate old format
+            if "portfolios" not in u:
+                u["portfolios"] = {"default": u.get("portfolio", {})}
+            ports = u["portfolios"]
+            if name not in ports:
+                ports[name] = {}
+            u["portfolios"] = ports
+            u["active_portfolio"] = name
+            save_users(users)
+    return redirect("/stocks")
+
+@app.route("/portfolio/delete-port", methods=["POST"])
+@login_required
+def portfolio_delete_port():
+    name = request.form.get("name", "").strip()
+    if name and name != "default":
+        uname = session["username"]
+        with _users_lock:
+            users = load_users()
+            u = users[uname]
+            ports = u.get("portfolios", {})
+            ports.pop(name, None)
+            u["portfolios"] = ports
+            if u.get("active_portfolio") == name:
+                u["active_portfolio"] = "default"
+            save_users(users)
+    return redirect("/stocks")
+
+# ─── PWA Manifest ────────────────────────────────────────────────────────────
+
+@app.route("/manifest.json")
+def manifest():
+    return jsonify({
+        "name": "ArtheeNoi Dashboard",
+        "short_name": "ArtheeNoi",
+        "description": "ระบบวิเคราะห์หุ้น AI",
+        "start_url": "/stocks",
+        "display": "standalone",
+        "background_color": "#131722",
+        "theme_color": "#131722",
+        "orientation": "any",
+        "icons": [
+            {"src": "https://fav.farm/📊", "sizes": "192x192", "type": "image/png"},
+            {"src": "https://fav.farm/📊", "sizes": "512x512", "type": "image/png"},
+        ],
+    })
+
+# ─── CSV Import / Export ─────────────────────────────────────────────────────
+
+@app.route("/settings/import-csv", methods=["POST"])
+@login_required
+def import_csv():
+    f = request.files.get("csv_file")
+    if not f:
+        return redirect("/settings")
+    try:
+        import csv, io
+        content = f.read().decode("utf-8-sig")
+        reader  = csv.DictReader(io.StringIO(content))
+        new_entries = {}
+        for row in reader:
+            sym    = (row.get("Symbol") or row.get("symbol", "")).upper().strip()
+            try:
+                shares = float(row.get("Shares") or row.get("shares") or 0)
+                cost   = float(row.get("Cost")   or row.get("cost")   or 0)
+            except (ValueError, TypeError):
+                continue
+            if sym and shares > 0 and cost > 0:
+                new_entries[sym] = {"shares": round(shares, 4), "cost": round(cost, 4)}
+        if new_entries:
+            uname = session["username"]
+            with _users_lock:
+                users = load_users()
+                u = users[uname]
+                port = _get_active_portfolio(u)
+                port.update(new_entries)
+                if "portfolios" in u:
+                    active = u.get("active_portfolio", "default")
+                    u["portfolios"][active] = port
+                else:
+                    u["portfolio"] = port
+                save_users(users)
+    except Exception as e:
+        log.warning(f"CSV import error: {e}")
+    return redirect("/stocks")
+
+@app.route("/settings/export-csv")
+@login_required
+def export_csv():
+    user = _inject_active_portfolio(get_user(session["username"]))
+    port = user.get("portfolio", {})
+    active = (get_user(session["username"]) or {}).get("active_portfolio", "default")
+    lines = ["Symbol,Shares,Cost\n"]
+    for sym, d in port.items():
+        lines.append(f"{sym},{d['shares']},{d['cost']}\n")
+    return Response("".join(lines), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment;filename=portfolio_{active}.csv'})
 
 @app.route("/ping")
 def ping():

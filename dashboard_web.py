@@ -329,24 +329,26 @@ def _base(page_id: str, title: str, content: str, user: dict,
     display = user.get("display_name", "User")
     is_admin = user.get("role") == "admin"
     nav = [
-        ("stocks",   "📊", "Stocks"),
-        ("charts",   "📉", "Charts"),
-        ("gold",     "🥇", "Gold"),
-        ("crypto",   "₿",  "Crypto"),
-        ("dca",      "📈", "DCA"),
-        ("signals",  "🎯", "Signals"),
-        ("news",     "📰", "News"),
-        ("paper",    "🧪", "Paper"),
-        ("ai",       "🤖", "AI"),
-        ("screener", "🔭", "Screener"),
-        ("heatmap",  "🟩", "Heatmap"),
-        ("analytics","📐", "Analytics"),
-        ("scanner",  "🔍", "Scanner"),
-        ("chat",     "💬", "Chat"),
-        ("alerts",   "🔔", "Alerts"),
-        ("calendar", "📅", "Calendar"),
-        ("options",  "⚙",  "Options"),
-        ("backtest", "⏪", "Backtest"),
+        ("stocks",    "📊", "Stocks"),
+        ("charts",    "📉", "Charts"),
+        ("gold",      "🥇", "Gold"),
+        ("crypto",    "₿",  "Crypto"),
+        ("dca",       "📈", "DCA"),
+        ("signals",   "🎯", "Signals"),
+        ("dividends", "💰", "Dividends"),
+        ("tools",     "🧮", "Tools"),
+        ("news",      "📰", "News"),
+        ("paper",     "🧪", "Paper"),
+        ("ai",        "🤖", "AI"),
+        ("screener",  "🔭", "Screener"),
+        ("heatmap",   "🟩", "Heatmap"),
+        ("analytics", "📐", "Analytics"),
+        ("scanner",   "🔍", "Scanner"),
+        ("chat",      "💬", "Chat"),
+        ("alerts",    "🔔", "Alerts"),
+        ("calendar",  "📅", "Calendar"),
+        ("options",   "⚙",  "Options"),
+        ("backtest",  "⏪", "Backtest"),
     ]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -365,8 +367,16 @@ def _base(page_id: str, title: str, content: str, user: dict,
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} — ArtheeNoi</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#131722">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ArtheeNoi">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<style>{_CSS}</style>
+<style>{_CSS}
+#pwa-install-btn{{display:none;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);color:var(--mid);border-radius:16px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}}
+#pwa-install-btn:hover{{border-color:var(--teal);color:var(--teal)}}
+</style>
 </head>
 <body>
 <div class="layout">
@@ -398,6 +408,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         <span id="mktLabel" style="font-size:11px;color:var(--mid)">Market</span>
         <span class="top-pill" id="thbRate">🇹🇭 ฿—</span>
         <span class="top-pill" id="mktTime">--:--</span>
+        <button id="pwa-install-btn" onclick="installPWA()" title="Install as App">📲 Install</button>
         <span class="top-user" onclick="location.href='/settings'">👤 {display}</span>
       </div>
     </div>
@@ -434,6 +445,16 @@ setInterval(updateClock,1000); updateClock();
 }})();
 {extra_js}
 {_TOAST_JS}
+// PWA install
+let _installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {{
+  e.preventDefault(); _installPrompt = e;
+  const btn = document.getElementById('pwa-install-btn');
+  if (btn) btn.style.display = 'flex';
+}});
+function installPWA() {{
+  if (_installPrompt) {{ _installPrompt.prompt(); _installPrompt = null; }}
+}}
 </script>
 <nav class="bottom-nav" style="display:none">
   <a href="/stocks" class="{bn_stocks}"><span class="bn-icon">📊</span>Stocks</a>
@@ -637,6 +658,40 @@ def _portfolio_health_html(port_rows: list, total_val: float, total_cost: float)
 def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
     port = user.get("portfolio", {})
     watchlist = user.get("watchlist", [])
+    # Multi-portfolio selector HTML
+    portfolios = user.get("portfolios")
+    active_port_name = user.get("active_portfolio", "default")
+    port_selector_html = ""
+    if portfolios and isinstance(portfolios, dict):
+        opts = "".join(
+            f'<option value="{n}" {"selected" if n == active_port_name else ""}>{n}</option>'
+            for n in portfolios
+        )
+        port_selector_html = f"""
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+  <span style="font-size:12px;color:var(--mid)">📁 Portfolio:</span>
+  <form method="POST" action="/portfolio/switch" style="display:flex;gap:6px;align-items:center">
+    <select name="name" onchange="this.form.submit()" style="font-size:12px;padding:4px 8px;border-radius:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text)">
+      {opts}
+    </select>
+  </form>
+  <button onclick="document.getElementById('new-port-modal').style.display='flex'" class="btn btn-ghost btn-sm">＋ New</button>
+  {'<form method="POST" action="/portfolio/delete-port" style="display:inline" onsubmit="return confirm(\'ลบ portfolio นี้?\')">'
+   + f'<input type="hidden" name="name" value="{active_port_name}">'
+   + '<button class="btn btn-danger btn-sm" type="submit">🗑</button></form>' if active_port_name != "default" else ""}
+</div>
+<div id="new-port-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:28px;width:320px">
+    <div style="font-weight:700;margin-bottom:14px">📁 สร้าง Portfolio ใหม่</div>
+    <form method="POST" action="/portfolio/new" style="display:flex;flex-direction:column;gap:10px">
+      <input name="name" placeholder="ชื่อ portfolio เช่น trading" autofocus>
+      <div style="display:flex;gap:8px">
+        <button type="submit" class="btn btn-primary" style="flex:1">สร้าง</button>
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('new-port-modal').style.display='none'">ยกเลิก</button>
+      </div>
+    </form>
+  </div>
+</div>"""
 
     # Portfolio summary
     total_val = total_cost = total_pnl = 0
@@ -760,9 +815,10 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
         </div>"""
 
     html = f"""
+{port_selector_html}
 <!-- Live indicator -->
 <div style="display:flex;align-items:center;margin-bottom:12px">
-  <span style="font-size:13px;font-weight:700;color:var(--text)">📊 Stocks Dashboard</span>
+  <span style="font-size:13px;font-weight:700;color:var(--text)">📊 Stocks Dashboard {'— ' + active_port_name if portfolios else ''}</span>
   <span id="live-timer" style="font-size:11px;color:var(--mid);background:var(--bg3);padding:3px 8px;border-radius:4px;margin-left:8px">🟢 Live · Updates in 60s</span>
 </div>
 
@@ -1600,6 +1656,357 @@ def signals_page(user: dict, market_data: dict, thb: float) -> str:
 </div>
 """
     return _base("signals", "Trade Signals", html, user, "", "")
+
+# ─── DIVIDEND TRACKER PAGE ────────────────────────────────────────────────────
+
+def dividends_page(user: dict, market_data: dict, thb: float) -> str:
+    divs = user.get("dividends", [])
+    port = user.get("portfolio", {})
+
+    # Summary calculations
+    total_usd = sum(d.get("total", 0) for d in divs)
+    total_thb = total_usd * thb
+
+    # Yield on cost
+    total_cost = sum(
+        float(port.get(sym, {}).get("cost", 0)) * float(port.get(sym, {}).get("shares", 0))
+        for sym in port
+    )
+    yoc = (total_usd / total_cost * 100) if total_cost else 0
+
+    # Annual run rate — last 12 months
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    annual_divs = [d for d in divs if d.get("date", "") >= cutoff]
+    annual_rate = sum(d.get("total", 0) for d in annual_divs)
+
+    # Dividend history table
+    hist_rows = ""
+    for i, d in enumerate(sorted(divs, key=lambda x: x.get("date", ""), reverse=True)):
+        hist_rows += f"""
+        <tr>
+          <td>{d.get('date','—')}</td>
+          <td><b>{d.get('sym','')}</b></td>
+          <td>${d.get('amount_usd',0):.4f}</td>
+          <td>{d.get('shares',0)}</td>
+          <td><b>${d.get('total',0):.2f}</b></td>
+          <td>฿{d.get('total',0)*thb:,.0f}</td>
+          <td>
+            <form method="POST" action="/dividends/delete" style="display:inline">
+              <input type="hidden" name="idx" value="{divs.index(d) if d in divs else i}">
+              <button class="btn btn-danger btn-sm">✕</button>
+            </form>
+          </td>
+        </tr>"""
+
+    # Monthly chart data
+    monthly: dict = {}
+    for d in divs:
+        m = d.get("date", "")[:7]  # YYYY-MM
+        if m:
+            monthly[m] = monthly.get(m, 0) + d.get("total", 0)
+    sorted_months = sorted(monthly.keys())[-12:]
+    chart_labels = json.dumps(sorted_months)
+    chart_data   = json.dumps([round(monthly.get(m, 0), 2) for m in sorted_months])
+
+    # Per-stock estimated dividends from yfinance
+    stock_yield_rows = ""
+    for sym in list(port.keys())[:10]:  # limit to avoid slow loads
+        try:
+            import yfinance as yf
+            t = yf.Ticker(sym)
+            price = (market_data.get(sym) or {}).get("price", 0)
+            info = t.fast_info
+            annual_div = getattr(info, "last_annual_dividend_value", None) or 0
+            div_yield = (annual_div / price * 100) if price and annual_div else 0
+            shares = float(port.get(sym, {}).get("shares", 0))
+            est_annual = annual_div * shares
+            stock_yield_rows += f"""
+            <tr>
+              <td><b>{sym}</b></td>
+              <td>${price:,.2f}</td>
+              <td>${annual_div:.3f}</td>
+              <td>{div_yield:.2f}%</td>
+              <td>${est_annual:.2f} / yr</td>
+            </tr>"""
+        except Exception:
+            pass
+
+    # Add dividend form - preselect portfolio symbols
+    port_opts = "".join(f'<option value="{s}">{s}</option>' for s in sorted(port.keys()))
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    html = f"""
+<!-- Summary Cards -->
+<div class="g4" style="margin-bottom:16px">
+  <div class="card-sm" style="border-top:3px solid var(--gold)">
+    <div class="card-hdr">Total Dividends</div>
+    <div class="stat-val gold-c">${total_usd:,.2f}</div>
+    <div class="stat-lbl">฿{total_thb:,.0f}</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Yield on Cost</div>
+    <div class="stat-val teal-c">{yoc:.2f}%</div>
+    <div class="stat-lbl">Based on total cost</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Annual Run Rate</div>
+    <div class="stat-val" style="color:var(--green)">${annual_rate:,.2f}</div>
+    <div class="stat-lbl">Last 12 months</div>
+  </div>
+  <div class="card-sm">
+    <div class="card-hdr">Records</div>
+    <div class="stat-val">{len(divs)}</div>
+    <div class="stat-lbl">Dividend entries</div>
+  </div>
+</div>
+
+<!-- Add Dividend Form -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">➕ บันทึกเงินปันผลที่ได้รับ</div>
+  <form method="POST" action="/dividends/add" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">Symbol</div>
+      <select name="sym" style="width:120px">
+        {port_opts}
+        <option value="">— พิมพ์เอง —</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">หรือพิมพ์ Symbol</div>
+      <input name="sym_custom" placeholder="เช่น NVDA" style="width:100px" oninput="document.querySelector('[name=sym]').value=this.value.toUpperCase()">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">วันที่</div>
+      <input type="date" name="date" value="{today}" style="width:140px">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">ปันผล/หุ้น (USD)</div>
+      <input type="number" name="amount" step="0.0001" min="0" placeholder="0.04" style="width:120px">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">จำนวนหุ้น</div>
+      <input type="number" name="shares" step="0.01" min="0" placeholder="10" style="width:100px">
+    </div>
+    <button type="submit" class="btn btn-primary">บันทึก</button>
+  </form>
+</div>
+
+<!-- Monthly Chart + History -->
+<div class="g2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">📊 Dividends รายเดือน (12M)</div>
+    <canvas id="divChart" style="max-height:220px"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-hdr">📈 Estimated Annual Dividend (yfinance)</div>
+    {'<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Symbol</th><th>Price</th><th>Div/Share</th><th>Yield</th><th>Est/yr</th></tr></thead><tbody>' + stock_yield_rows + '</tbody></table></div>' if stock_yield_rows else '<div style="color:var(--muted);font-size:13px">ไม่มีข้อมูล portfolio หรือหุ้นไม่จ่ายปันผล</div>'}
+  </div>
+</div>
+
+<!-- History Table -->
+<div class="card">
+  <div class="card-hdr">📋 ประวัติเงินปันผลทั้งหมด</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>วันที่</th><th>Symbol</th><th>ต่อหุ้น</th><th>หุ้น</th><th>รวม USD</th><th>รวม THB</th><th></th></tr></thead>
+      <tbody>{hist_rows or '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีข้อมูลปันผล — กรอกด้านบนได้เลย</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+"""
+    js = f"""
+const divCtx = document.getElementById('divChart');
+if (divCtx) {{
+  new Chart(divCtx, {{
+    type: 'bar',
+    data: {{
+      labels: {chart_labels},
+      datasets: [{{
+        label: 'Dividends (USD)',
+        data: {chart_data},
+        backgroundColor: 'rgba(45,212,191,0.6)',
+        borderColor: 'rgba(45,212,191,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }}]
+    }},
+    options: {{
+      responsive: true,
+      plugins: {{ legend: {{ display: false }}, tooltip: {{ callbacks: {{ label: ctx => '$'+ctx.raw.toFixed(2) }} }} }},
+      scales: {{
+        x: {{ ticks: {{ color: '#787b86', font: {{ size: 10 }} }}, grid: {{ color: '#363a45' }} }},
+        y: {{ ticks: {{ color: '#787b86', callback: v => '$'+v }} , grid: {{ color: '#363a45' }} }}
+      }}
+    }}
+  }});
+}}
+"""
+    return _base("dividends", "Dividend Tracker", html, user, "", js)
+
+# ─── TOOLS PAGE (Position Sizing + Calculators) ───────────────────────────────
+
+def tools_page(user: dict, market_data: dict, thb: float) -> str:
+    html = f"""
+<!-- Position Sizing Calculator -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">🧮 Position Sizing Calculator</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:16px">คำนวณขนาด position จากความเสี่ยงที่รับได้ — ใส่ตัวเลขแล้วผลจะคำนวณทันที</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Account Size (USD)</label>
+      <input type="number" id="ps_account" value="10000" oninput="calcPS()" style="width:100%">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Risk per Trade (%)</label>
+      <input type="number" id="ps_risk" value="2" step="0.1" min="0.1" max="100" oninput="calcPS()" style="width:100%">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Entry Price (USD)</label>
+      <input type="number" id="ps_entry" value="0" step="0.01" oninput="calcPS()" style="width:100%">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:4px">Stop Loss Price (USD)</label>
+      <input type="number" id="ps_stop" value="0" step="0.01" oninput="calcPS()" style="width:100%">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px" id="ps_results">
+    <div class="card-sm" style="border-top:3px solid var(--red)">
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">Max Loss (USD)</div>
+      <div id="ps_loss" style="font-size:22px;font-weight:800;color:var(--red)">—</div>
+    </div>
+    <div class="card-sm" style="border-top:3px solid var(--teal)">
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">Shares to Buy</div>
+      <div id="ps_shares" style="font-size:22px;font-weight:800;color:var(--teal)">—</div>
+    </div>
+    <div class="card-sm" style="border-top:3px solid var(--blue)">
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">Position Value</div>
+      <div id="ps_value" style="font-size:22px;font-weight:800;color:var(--blue)">—</div>
+    </div>
+    <div class="card-sm" style="border-top:3px solid var(--purple)">
+      <div style="font-size:11px;color:var(--mid);margin-bottom:4px">% of Account</div>
+      <div id="ps_pct" style="font-size:22px;font-weight:800;color:var(--purple)">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- THB / USD Calculator -->
+<div class="g2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">💱 THB / USD Converter</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">อัตราปัจจุบัน: 1 USD = <b id="thb_rate" style="color:var(--teal)">฿{thb:.2f}</b></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <input type="number" id="usd_in" placeholder="USD" oninput="document.getElementById('thb_out').value=(+this.value*{thb}).toFixed(2)" style="flex:1">
+      <span style="color:var(--mid)">→</span>
+      <input type="number" id="thb_out" placeholder="THB" oninput="document.getElementById('usd_in').value=(+this.value/{thb}).toFixed(4)" style="flex:1">
+    </div>
+    <div style="font-size:11px;color:var(--muted)">USD → THB ทันที</div>
+  </div>
+
+  <!-- Compound Return Calculator -->
+  <div class="card">
+    <div class="card-hdr">📈 Compound Return Calculator</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:3px">Principal (USD)</label>
+        <input type="number" id="cp_principal" value="10000" oninput="calcCompound()" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:3px">Return/yr (%)</label>
+        <input type="number" id="cp_rate" value="15" step="0.5" oninput="calcCompound()" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--mid);display:block;margin-bottom:3px">Years</label>
+        <input type="number" id="cp_years" value="10" min="1" max="50" oninput="calcCompound()" style="width:100%">
+      </div>
+    </div>
+    <canvas id="compoundChart" style="max-height:160px"></canvas>
+    <div id="cp_result" style="margin-top:10px;font-size:13px;color:var(--mid)"></div>
+  </div>
+</div>
+
+<!-- Quick Reference -->
+<div class="card">
+  <div class="card-hdr">📚 Position Sizing Rules of Thumb</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;font-size:13px">
+    <div class="card-sm">
+      <div style="font-weight:700;color:var(--teal);margin-bottom:6px">Conservative (1-2% risk)</div>
+      <div style="color:var(--mid);line-height:1.8">เหมาะ: สวิง/ลงทุนระยะกลาง<br>Max drawdown: ~10-20%<br>ยอมรับขาดทุนต่อไม้ได้ดี</div>
+    </div>
+    <div class="card-sm">
+      <div style="font-weight:700;color:var(--gold);margin-bottom:6px">Moderate (2-3% risk)</div>
+      <div style="color:var(--mid);line-height:1.8">เหมาะ: นักเทรดมีประสบการณ์<br>Max drawdown: ~20-30%<br>ต้องระวัง drawdown ช่วง loss streak</div>
+    </div>
+    <div class="card-sm">
+      <div style="font-weight:700;color:var(--red);margin-bottom:6px">Aggressive (&gt;3% risk)</div>
+      <div style="color:var(--mid);line-height:1.8">ความเสี่ยงสูงมาก<br>ไม่แนะนำสำหรับมือใหม่<br>เสี่ยง blow up account</div>
+    </div>
+  </div>
+</div>
+"""
+    js = """
+function calcPS() {
+  const account = +document.getElementById('ps_account').value || 0;
+  const riskPct = +document.getElementById('ps_risk').value || 0;
+  const entry   = +document.getElementById('ps_entry').value || 0;
+  const stop    = +document.getElementById('ps_stop').value || 0;
+  if (!account || !riskPct || !entry || !stop || entry <= stop) {
+    ['ps_loss','ps_shares','ps_value','ps_pct'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+  const riskAmt = account * riskPct / 100;
+  const riskPerShare = Math.abs(entry - stop);
+  const shares = riskAmt / riskPerShare;
+  const posValue = shares * entry;
+  const pctAccount = posValue / account * 100;
+  document.getElementById('ps_loss').textContent = '$' + riskAmt.toFixed(2);
+  document.getElementById('ps_shares').textContent = shares.toFixed(2) + ' shares';
+  document.getElementById('ps_value').textContent = '$' + posValue.toFixed(2);
+  document.getElementById('ps_pct').textContent = pctAccount.toFixed(1) + '%';
+}
+
+let _compoundChart = null;
+function calcCompound() {
+  const p = +document.getElementById('cp_principal').value || 0;
+  const r = +document.getElementById('cp_rate').value || 0;
+  const y = Math.min(+document.getElementById('cp_years').value || 0, 50);
+  const labels = [], data = [];
+  for (let i = 0; i <= y; i++) {
+    labels.push('Y' + i);
+    data.push(+(p * Math.pow(1 + r/100, i)).toFixed(2));
+  }
+  const final = data[data.length - 1];
+  const gain = final - p;
+  document.getElementById('cp_result').innerHTML =
+    `เงิน <b style="color:var(--teal)">$${p.toLocaleString()}</b> หลัง <b>${y} ปี</b> @ <b>${r}%/yr</b> = <b style="color:var(--green);font-size:15px">$${final.toLocaleString()}</b> (กำไร $${gain.toLocaleString()})`;
+  const ctx = document.getElementById('compoundChart');
+  if (_compoundChart) _compoundChart.destroy();
+  _compoundChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#2dd4bf',
+        backgroundColor: 'rgba(45,212,191,0.15)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '$'+ctx.raw.toLocaleString() } } },
+      scales: {
+        x: { ticks: { color: '#787b86', font: { size: 10 } }, grid: { color: '#363a45' } },
+        y: { ticks: { color: '#787b86', callback: v => '$'+v.toLocaleString() }, grid: { color: '#363a45' } }
+      }
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', () => { calcPS(); calcCompound(); });
+"""
+    return _base("tools", "Trading Tools", html, user, "", js)
 
 # ─── PAPER TRADING PAGE ───────────────────────────────────────────────────────
 
@@ -2488,24 +2895,26 @@ function filterSector(el, sec) {
 def _sidebar_html(user: dict, active: str) -> str:
     is_admin = user.get("role") == "admin"
     nav = [
-        ("stocks",   "📊", "Stocks"),
-        ("charts",   "📉", "Charts"),
-        ("gold",     "🥇", "Gold"),
-        ("crypto",   "₿",  "Crypto"),
-        ("dca",      "📈", "DCA"),
-        ("signals",  "🎯", "Signals"),
-        ("news",     "📰", "News"),
-        ("paper",    "🧪", "Paper"),
-        ("ai",       "🤖", "AI"),
-        ("screener", "🔭", "Screener"),
-        ("heatmap",  "🟩", "Heatmap"),
-        ("analytics","📐", "Analytics"),
-        ("scanner",  "🔍", "Scanner"),
-        ("chat",     "💬", "Chat"),
-        ("alerts",   "🔔", "Alerts"),
-        ("calendar", "📅", "Calendar"),
-        ("options",  "⚙",  "Options"),
-        ("backtest", "⏪", "Backtest"),
+        ("stocks",    "📊", "Stocks"),
+        ("charts",    "📉", "Charts"),
+        ("gold",      "🥇", "Gold"),
+        ("crypto",    "₿",  "Crypto"),
+        ("dca",       "📈", "DCA"),
+        ("signals",   "🎯", "Signals"),
+        ("dividends", "💰", "Dividends"),
+        ("tools",     "🧮", "Tools"),
+        ("news",      "📰", "News"),
+        ("paper",     "🧪", "Paper"),
+        ("ai",        "🤖", "AI"),
+        ("screener",  "🔭", "Screener"),
+        ("heatmap",   "🟩", "Heatmap"),
+        ("analytics", "📐", "Analytics"),
+        ("scanner",   "🔍", "Scanner"),
+        ("chat",      "💬", "Chat"),
+        ("alerts",    "🔔", "Alerts"),
+        ("calendar",  "📅", "Calendar"),
+        ("options",   "⚙",  "Options"),
+        ("backtest",  "⏪", "Backtest"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
