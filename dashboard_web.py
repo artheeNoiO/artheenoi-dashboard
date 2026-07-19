@@ -2144,7 +2144,7 @@ def screener_page(user: dict, market_data: dict, macro: dict,
           <td><span style="font-size:11px;color:var(--mid)">{e['s']}</span></td>
           <td><span style="color:{_TIER_COL.get(tier,'var(--mid)')};font-size:10px;font-weight:700">{_TIER_LABEL.get(tier,'')}</span></td>
           <td>{'$'+f'{price:,.2f}' if price else '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
-          <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'};font-size:12px">{'+' if chg>=0 else ''}{chg:.2f if price else '0.00'}%</span></td>
+          <td><span style="color:{'var(--green)' if chg>=0 else 'var(--red)'};font-size:12px">{'+' if chg>=0 else ''}{(chg if price else 0.0):.2f}%</span></td>
           <td>{_rsi_bar(rsi) if rsi else '<span style="color:var(--muted)">—</span>'}</td>
           <td style="font-size:11px;color:var(--muted)">{e.get('note','')[:40]}</td>
         </tr>"""
