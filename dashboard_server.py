@@ -34,6 +34,8 @@ GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
 MARKETAUX_KEY    = os.environ.get("MARKETAUX_KEY", "")
 OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")   # system-wide key
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 _ai_cache: dict  = {}   # username → {"text": ..., "ts": datetime}
 
 def _get_user_or_key(username: str) -> str:
@@ -1207,28 +1209,50 @@ def api_alerts():
     return jsonify({"active": active})
 
 
+def _send_telegram(text: str) -> None:
+    """Fire-and-forget Telegram message. Silently ignored if token not set."""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        import urllib.request as _ur
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = json.dumps({"chat_id": TELEGRAM_CHAT_ID,
+                              "text": text, "parse_mode": "HTML"}).encode()
+        req = _ur.Request(url, data=payload,
+                          headers={"Content-Type": "application/json"})
+        _ur.urlopen(req, timeout=5)
+    except Exception:
+        pass
+
+
 @app.route("/api/alert-log", methods=["POST"])
 @login_required
 def api_alert_log():
-    """Browser calls this when a price alert triggers — append to alert_history."""
+    """Browser calls this when a price alert triggers — append to alert_history + Telegram."""
     uname = session["username"]
     data  = request.json or {}
     sym   = data.get("sym", "").upper()
     if not sym:
         return jsonify({"ok": False})
-    entry = {
-        "sym": sym,
-        "condition": data.get("condition", ""),
-        "target": data.get("target", 0),
-        "actual": data.get("actual", 0),
-        "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
+    condition = data.get("condition", "")
+    target    = data.get("target", 0)
+    actual    = data.get("actual", 0)
+    ts        = datetime.now().strftime("%Y-%m-%d %H:%M")
+    entry = {"sym": sym, "condition": condition,
+             "target": target, "actual": actual, "ts": ts}
     with _users_lock:
         users = load_users()
         hist = users[uname].setdefault("alert_history", [])
         hist.append(entry)
-        users[uname]["alert_history"] = hist[-200:]  # keep 200 entries
+        users[uname]["alert_history"] = hist[-200:]
         save_users(users)
+    # Telegram notification (non-blocking)
+    arrow = "🔴" if "below" in condition.lower() or "sell" in condition.lower() else "🟢"
+    tg_msg = (f"{arrow} <b>Alert: {sym}</b>\n"
+              f"เงื่อนไข: {condition}\n"
+              f"เป้า: ${target}  |  ราคาจริง: ${actual}\n"
+              f"⏱ {ts}")
+    threading.Thread(target=_send_telegram, args=(tg_msg,), daemon=True).start()
     return jsonify({"ok": True})
 
 
@@ -1561,9 +1585,9 @@ def watchlist_remove():
 @app.route("/api/compare")
 @login_required
 def api_compare():
-    """Return OHLCV closes for multiple symbols for compare chart."""
+    """Return normalized (base-100) price series for 2-5 symbols."""
     syms_raw = request.args.get("syms", "")
-    period   = request.args.get("period", "6mo")
+    period   = request.args.get("period", "1y")
     syms = [s.strip().upper() for s in syms_raw.split(",") if s.strip()][:5]
     if not syms:
         return jsonify({"error": "no symbols"})
@@ -1572,15 +1596,20 @@ def api_compare():
         result = {}
         for sym in syms:
             try:
-                hist = yf.Ticker(sym).history(period=period)
-                if hist.empty:
-                    continue
-                closes = [round(float(v), 4) for v in hist["Close"].tolist()]
-                dates  = [str(d.date()) for d in hist.index.tolist()]
-                result[sym] = {"closes": closes, "dates": dates}
+                h = yf.download(sym, period=period, interval="1d",
+                                progress=False, auto_adjust=True)
+                if not h.empty and "Close" in h.columns:
+                    closes = h["Close"].squeeze()
+                    base = float(closes.iloc[0])
+                    result[sym] = [
+                        {"date": str(d.date()), "val": round(float(v)/base*100, 2)}
+                        for d, v in closes.items()
+                    ]
             except Exception:
                 continue
-        return jsonify(result)
+        if not result:
+            return jsonify({"error": "ดึงข้อมูลไม่ได้"})
+        return jsonify({"series": result, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -1672,6 +1701,257 @@ def report():
     mkt, _, thb = _get_mkt()
     user = _inject_active_portfolio(get_user(session["username"]))
     return dw.report_page(user, mkt or {}, thb or 34.0)
+
+
+@app.route("/api/risk-metrics")
+@login_required
+def api_risk_metrics():
+    """Compute Sharpe, Beta, MaxDrawdown, Volatility for the user's portfolio."""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        import math as _m
+        user = _inject_active_portfolio(get_user(session["username"]))
+        port = user.get("portfolio", {})
+        if not port:
+            return jsonify({"error": "ไม่มีหุ้นใน portfolio"})
+        # Build equal-weighted portfolio returns (weighted by current value)
+        mkt, _, _ = _get_mkt()
+        weights = {}
+        total_val = 0.0
+        for sym, info in port.items():
+            qty  = float(info.get("qty", 0) or 0)
+            price = float((mkt or {}).get(sym, {}).get("price") or 0)
+            val  = qty * price
+            weights[sym] = val
+            total_val += val
+        if total_val == 0:
+            return jsonify({"error": "มูลค่า portfolio เป็น 0"})
+        # Fetch 1Y closes
+        all_syms = list(weights.keys()) + ["SPY"]
+        closes = {}
+        for sym in all_syms:
+            try:
+                h = yf.download(sym, period="1y", interval="1d",
+                                progress=False, auto_adjust=True)
+                if not h.empty and "Close" in h.columns:
+                    closes[sym] = h["Close"].squeeze()
+            except Exception:
+                pass
+        if not closes or "SPY" not in closes:
+            return jsonify({"error": "ดึงข้อมูลไม่ได้"})
+        df = pd.DataFrame({s: closes[s] for s in closes}).dropna()
+        rets = df.pct_change().dropna()
+        # Weighted portfolio return series
+        valid_syms = [s for s in weights if s in rets.columns]
+        if not valid_syms:
+            return jsonify({"error": "ไม่มีข้อมูลพอ"})
+        w = {s: weights[s] / total_val for s in valid_syms}
+        port_ret = sum(rets[s] * w[s] for s in valid_syms)
+        spy_ret  = rets["SPY"]
+        # Metrics
+        trading_days = 252
+        ann_ret = float(port_ret.mean() * trading_days)
+        ann_vol = float(port_ret.std() * _m.sqrt(trading_days))
+        risk_free = 0.045  # ~4.5% risk-free rate
+        sharpe = (ann_ret - risk_free) / ann_vol if ann_vol else 0
+        # Beta
+        cov = port_ret.cov(spy_ret)
+        var_spy = spy_ret.var()
+        beta = float(cov / var_spy) if var_spy else 1.0
+        # Max Drawdown
+        cumret = (1 + port_ret).cumprod()
+        rolling_max = cumret.cummax()
+        dd = (cumret - rolling_max) / rolling_max
+        max_dd = float(dd.min())
+        # Sortino
+        neg = port_ret[port_ret < 0]
+        downvol = float(neg.std() * _m.sqrt(trading_days)) if len(neg) > 0 else 0.0001
+        sortino = (ann_ret - risk_free) / downvol if downvol else 0
+        # Win rate
+        win_rate = float((port_ret > 0).sum() / len(port_ret) * 100)
+        return jsonify({
+            "ann_return": round(ann_ret * 100, 2),
+            "ann_vol": round(ann_vol * 100, 2),
+            "sharpe": round(sharpe, 3),
+            "sortino": round(sortino, 3),
+            "beta": round(beta, 3),
+            "max_drawdown": round(max_dd * 100, 2),
+            "win_rate": round(win_rate, 1),
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/risk")
+@login_required
+def risk():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.risk_page(user, mkt, thb)
+
+
+@app.route("/api/benchmark")
+@login_required
+def api_benchmark():
+    """Portfolio value history + SPY/QQQ normalized to compare performance."""
+    try:
+        import yfinance as yf
+        user = _inject_active_portfolio(get_user(session["username"]))
+        snaps = user.get("portfolio_snapshots", [])
+        if len(snaps) < 2:
+            return jsonify({"error": "ยังไม่มี portfolio history — รอให้ระบบบันทึกข้อมูล 2 วันขึ้นไป"})
+        # Fetch SPY + QQQ for the same date range
+        start_date = snaps[0]["date"]
+        bench_data = {}
+        for sym in ["SPY", "QQQ"]:
+            try:
+                h = yf.download(sym, start=start_date, interval="1d",
+                                progress=False, auto_adjust=True)
+                if not h.empty and "Close" in h.columns:
+                    closes = h["Close"].squeeze()
+                    base = float(closes.iloc[0])
+                    bench_data[sym] = [
+                        {"date": str(d.date()), "pct": round((v/base - 1)*100, 2)}
+                        for d, v in closes.items()
+                    ]
+            except Exception:
+                pass
+        # Normalize portfolio snaps to % change from first value
+        base_port = snaps[0]["value"] or 1
+        port_series = [
+            {"date": s["date"], "pct": round((s["value"]/base_port - 1)*100, 2)}
+            for s in snaps if s.get("value")
+        ]
+        return jsonify({"portfolio": port_series, "benchmarks": bench_data,
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/benchmark")
+@login_required
+def benchmark():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.benchmark_page(user, mkt, thb)
+
+
+@app.route("/realized")
+@login_required
+def realized():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.realized_page(user, mkt or {}, thb or 34.0)
+
+
+@app.route("/realized/add", methods=["POST"])
+@login_required
+def realized_add():
+    uname = session["username"]
+    f = request.form
+    try:
+        qty       = float(f.get("qty", 0) or 0)
+        cost_per  = float(f.get("cost_per", 0) or 0)
+        sell_per  = float(f.get("sell_price", 0) or 0)
+    except ValueError:
+        qty = cost_per = sell_per = 0
+    pnl = (sell_per - cost_per) * qty
+    entry = {
+        "id": int(time.time() * 1000),
+        "date": f.get("date", datetime.now().strftime("%Y-%m-%d")),
+        "sym": f.get("sym", "").upper().strip(),
+        "qty": qty,
+        "cost_per": cost_per,
+        "sell_price": sell_per,
+        "pnl": round(pnl, 2),
+        "notes": f.get("notes", ""),
+    }
+    with _users_lock:
+        users = load_users()
+        users[uname].setdefault("realized_trades", []).append(entry)
+        save_users(users)
+    return redirect("/realized")
+
+
+@app.route("/realized/delete", methods=["POST"])
+@login_required
+def realized_delete():
+    uname = session["username"]
+    rid   = int(request.form.get("rid", 0))
+    with _users_lock:
+        users = load_users()
+        trades = users[uname].get("realized_trades", [])
+        users[uname]["realized_trades"] = [t for t in trades if t.get("id") != rid]
+        save_users(users)
+    return redirect("/realized")
+
+
+@app.route("/compare")
+@login_required
+def compare():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.compare_page(user, mkt or {})
+
+
+@app.route("/api/macro")
+@login_required
+def api_macro():
+    """Macro data: VIX, 10Y/2Y yields, DXY, Oil, Gold."""
+    try:
+        import yfinance as yf
+        macro_syms = {
+            "VIX":   "^VIX",
+            "10Y":   "^TNX",
+            "2Y":    "^IRX",
+            "DXY":   "DX-Y.NYB",
+            "OIL":   "CL=F",
+            "GOLD":  "GC=F",
+            "SPY":   "SPY",
+            "BTC":   "BTC-USD",
+        }
+        result = {}
+        for label, sym in macro_syms.items():
+            try:
+                t = yf.Ticker(sym)
+                info = t.fast_info
+                price = float(getattr(info, "last_price", 0) or 0)
+                prev  = float(getattr(info, "previous_close", price) or price)
+                chg   = ((price - prev) / prev * 100) if prev else 0
+                result[label] = {"price": round(price, 2), "chg": round(chg, 2), "sym": sym}
+            except Exception:
+                result[label] = {"price": 0, "chg": 0, "sym": sym}
+        # Yield curve spread
+        y10 = result.get("10Y", {}).get("price", 0)
+        y2  = result.get("2Y", {}).get("price", 0)
+        spread = round(y10 - y2, 3) if y10 and y2 else None
+        return jsonify({"data": result, "yield_spread": spread,
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/macro")
+@login_required
+def macro():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.macro_page(user, mkt or {})
 
 
 @app.route("/refresh", methods=["POST", "GET"])

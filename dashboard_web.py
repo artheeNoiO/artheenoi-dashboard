@@ -360,6 +360,11 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("backtest",    "⏪", "Backtest"),
         ("correlation", "🔗", "Correlation"),
         ("report",      "📄", "Report"),
+        ("risk",        "⚠️", "Risk"),
+        ("benchmark",   "📏", "Benchmark"),
+        ("realized",    "💵", "Realized P&L"),
+        ("compare",     "⚖️", "Compare"),
+        ("macro",       "🌐", "Macro"),
     ]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -3144,6 +3149,11 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("backtest",    "⏪", "Backtest"),
         ("correlation", "🔗", "Correlation"),
         ("report",      "📄", "Report"),
+        ("risk",        "⚠️", "Risk"),
+        ("benchmark",   "📏", "Benchmark"),
+        ("realized",    "💵", "Realized P&L"),
+        ("compare",     "⚖️", "Compare"),
+        ("macro",       "🌐", "Macro"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -5583,6 +5593,451 @@ tr:last-child td{{border-bottom:none}}
 
     # Return full HTML (not wrapped in _base — this is a standalone printable page)
     return html
+
+
+def risk_page(user: dict, market_data: dict, thb: float) -> str:
+    ticker_html = _ticker_html(market_data)
+    port = user.get("portfolio", {})
+    syms_list = ", ".join(port.keys()) if port else "—"
+
+    html = f"""
+<div style="margin-bottom:16px">
+  <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+    คำนวณ Risk Metrics จาก 1 ปีย้อนหลัง (252 วันทำการ) · เทียบ Beta กับ SPY
+    <br>Portfolio: <span style="color:var(--teal)">{syms_list}</span>
+  </div>
+  <button class="btn btn-primary" onclick="loadRisk()">⚠️ คำนวณ Risk Metrics</button>
+</div>
+
+<div id="riskStatus" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
+
+<div id="riskCards" style="display:none">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px" id="kpiGrid"></div>
+  <div class="card">
+    <div class="card-hdr">📖 ความหมายตัวชี้วัด</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;padding:8px 0">
+      <div><span style="color:var(--teal);font-weight:700">Sharpe Ratio</span> — ผลตอบแทนต่อความเสี่ยง (>1 = ดี, >2 = ดีมาก)</div>
+      <div><span style="color:var(--teal);font-weight:700">Sortino Ratio</span> — เหมือน Sharpe แต่นับแค่ downside risk</div>
+      <div><span style="color:var(--teal);font-weight:700">Beta</span> — ความผันผวนเทียบ SPY (&lt;1 = เสี่ยงน้อยกว่าตลาด, >1 = มากกว่า)</div>
+      <div><span style="color:var(--teal);font-weight:700">Max Drawdown</span> — ขาดทุนสูงสุดจากจุดสูงสุด (น้อยยิ่งดี)</div>
+      <div><span style="color:var(--teal);font-weight:700">Ann. Return</span> — ผลตอบแทนรายปีจากช่วง 1 ปีที่ผ่านมา</div>
+      <div><span style="color:var(--teal);font-weight:700">Win Rate</span> — วันที่ portfolio เป็นบวก ÷ วันทั้งหมด</div>
+    </div>
+  </div>
+</div>
+"""
+
+    js = """
+function loadRisk(){
+  document.getElementById('riskStatus').textContent='⏳ กำลังคำนวณ…';
+  document.getElementById('riskCards').style.display='none';
+  fetch('/api/risk-metrics').then(r=>r.json()).then(d=>{
+    if(d.error){document.getElementById('riskStatus').textContent='❌ '+d.error;return;}
+    const metrics=[
+      {lbl:'Ann. Return',val:(d.ann_return>=0?'+':'')+d.ann_return+'%',color:d.ann_return>=0?'var(--green)':'var(--red)'},
+      {lbl:'Ann. Volatility',val:d.ann_vol+'%',color:'var(--gold)'},
+      {lbl:'Sharpe Ratio',val:d.sharpe,color:d.sharpe>=1?'var(--green)':d.sharpe>=0?'var(--gold)':'var(--red)'},
+      {lbl:'Sortino Ratio',val:d.sortino,color:d.sortino>=1?'var(--green)':d.sortino>=0?'var(--gold)':'var(--red)'},
+      {lbl:'Beta (vs SPY)',val:d.beta,color:d.beta<=1.2?'var(--green)':'var(--red)'},
+      {lbl:'Max Drawdown',val:d.max_drawdown+'%',color:'var(--red)'},
+      {lbl:'Win Rate',val:d.win_rate+'%',color:d.win_rate>=50?'var(--green)':'var(--red)'},
+    ];
+    let html='';
+    for(const m of metrics){
+      html+=`<div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:4px">${m.lbl}</div>
+        <div style="font-size:26px;font-weight:800;color:${m.color}">${m.val}</div>
+      </div>`;
+    }
+    document.getElementById('kpiGrid').innerHTML=html;
+    document.getElementById('riskStatus').textContent='✅ อัปเดต '+d.updated;
+    document.getElementById('riskCards').style.display='';
+  }).catch(e=>{document.getElementById('riskStatus').textContent='❌ '+e;});
+}
+"""
+    return _base("risk", "Portfolio Risk Metrics", html, user, ticker_html, js)
+
+
+def benchmark_page(user: dict, market_data: dict, thb: float) -> str:
+    ticker_html = _ticker_html(market_data)
+    snaps = user.get("portfolio_snapshots", [])
+    snap_note = ""
+    if len(snaps) < 2:
+        snap_note = '<div class="card" style="color:var(--muted);padding:20px;text-align:center">ยังไม่มี portfolio history — ระบบจะบันทึกทุกวันหลัง market refresh ครั้งแรก</div>'
+
+    html = f"""
+<div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+  <div style="font-size:13px;color:var(--muted)">เทียบผลตอบแทน Portfolio กับ SPY/QQQ (normalize เป็น % จากจุดเริ่ม)</div>
+  <button class="btn btn-primary btn-sm" onclick="loadBench()">📏 โหลด Benchmark</button>
+</div>
+<div id="benchStatus" style="color:var(--muted);font-size:12px;margin-bottom:8px"></div>
+{snap_note}
+<div class="card" id="benchCard" style="{'display:none' if len(snaps)<2 else ''}">
+  <div class="card-hdr">📏 Portfolio vs SPY vs QQQ</div>
+  <div style="position:relative;height:320px">
+    <canvas id="benchChart"></canvas>
+  </div>
+  <div id="benchLegend" style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:12px"></div>
+</div>
+"""
+
+    js = """
+let benchChartInst = null;
+function loadBench(){
+  document.getElementById('benchStatus').textContent='⏳ กำลังโหลด…';
+  fetch('/api/benchmark').then(r=>r.json()).then(d=>{
+    if(d.error){document.getElementById('benchStatus').textContent='❌ '+d.error;return;}
+    document.getElementById('benchCard').style.display='';
+    renderBench(d);
+    document.getElementById('benchStatus').textContent='✅ อัปเดต '+d.updated;
+  }).catch(e=>{document.getElementById('benchStatus').textContent='❌ '+e;});
+}
+function renderBench(d){
+  const colors={'Portfolio':'#2dd4bf','SPY':'#f59e0b','QQQ':'#a78bfa'};
+  const datasets=[];
+  // Portfolio
+  datasets.push({
+    label:'Portfolio',
+    data: d.portfolio.map(p=>({x:p.date,y:p.pct})),
+    borderColor:'#2dd4bf',borderWidth:2,pointRadius:0,tension:.3,fill:false
+  });
+  for(const [sym,series] of Object.entries(d.benchmarks)){
+    datasets.push({
+      label:sym,
+      data:series.map(p=>({x:p.date,y:p.pct})),
+      borderColor:colors[sym]||'#999',borderWidth:1.5,pointRadius:0,tension:.3,
+      borderDash:sym==='SPY'?[4,3]:[2,2],fill:false
+    });
+  }
+  if(benchChartInst){benchChartInst.destroy();}
+  const ctx=document.getElementById('benchChart').getContext('2d');
+  benchChartInst=new Chart(ctx,{
+    type:'line',
+    data:{datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      scales:{
+        x:{type:'time',time:{unit:'month'},ticks:{color:'#787b86'},grid:{color:'#2a2e39'}},
+        y:{ticks:{color:'#787b86',callback:v=>v+'%'},grid:{color:'#2a2e39'},
+           title:{display:true,text:'% Return from Start',color:'#787b86'}}
+      },
+      plugins:{legend:{labels:{color:'#d1d4dc',boxWidth:12}},
+               tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+(ctx.parsed.y>=0?'+':'')+ctx.parsed.y.toFixed(2)+'%'}}}
+    }
+  });
+  // Legend with latest %
+  let leg='';
+  for(const ds of datasets){
+    const last=ds.data[ds.data.length-1];
+    const pct=last?last.y:0;
+    const col=pct>=0?'var(--green)':'var(--red)';
+    leg+=`<div style="display:flex;align-items:center;gap:5px">
+      <span style="width:12px;height:3px;background:${ds.borderColor};display:inline-block;border-radius:2px"></span>
+      <span>${ds.label}</span>
+      <span style="color:${col};font-weight:700">${pct>=0?'+':''}${pct.toFixed(2)}%</span>
+    </div>`;
+  }
+  document.getElementById('benchLegend').innerHTML=leg;
+}
+document.addEventListener('DOMContentLoaded',loadBench);
+"""
+    return _base("benchmark", "Benchmark Comparison", html, user, ticker_html, js)
+
+
+def realized_page(user: dict, market_data: dict, thb: float) -> str:
+    ticker_html = _ticker_html(market_data)
+    trades = list(reversed(user.get("realized_trades", [])))
+    total_pnl = sum(t.get("pnl", 0) for t in trades)
+    win_trades = [t for t in trades if t.get("pnl", 0) > 0]
+    win_rate = (len(win_trades) / len(trades) * 100) if trades else 0
+
+    rows_html = ""
+    for t in trades:
+        pnl = t.get("pnl", 0)
+        color = "var(--green)" if pnl >= 0 else "var(--red)"
+        arrow = "▲" if pnl >= 0 else "▼"
+        pnl_pct = ((t.get("sell_price",0) - t.get("cost_per",0)) / t.get("cost_per",1) * 100) if t.get("cost_per") else 0
+        rows_html += f"""<tr>
+          <td style="color:var(--muted);font-size:11px">{t.get('date','')}</td>
+          <td><b>{t.get('sym','—')}</b></td>
+          <td style="text-align:right">{t.get('qty',0):,.2f}</td>
+          <td style="text-align:right">${t.get('cost_per',0):,.2f}</td>
+          <td style="text-align:right">${t.get('sell_price',0):,.2f}</td>
+          <td style="text-align:right;color:{color};font-weight:700">{arrow} ${abs(pnl):,.2f}</td>
+          <td style="text-align:right;color:{color}">{pnl_pct:+.2f}%</td>
+          <td style="color:var(--muted);font-size:11px">{t.get('notes','')}</td>
+          <td><form method="POST" action="/realized/delete" style="margin:0">
+            <input type="hidden" name="rid" value="{t.get('id',0)}">
+            <button class="btn btn-danger btn-sm" type="submit">✕</button>
+          </form></td>
+        </tr>"""
+
+    pnl_color = "var(--green)" if total_pnl >= 0 else "var(--red)"
+
+    html = f"""
+<!-- Summary KPIs -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+  <div class="card" style="text-align:center;padding:14px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase">Realized P&L รวม</div>
+    <div style="font-size:24px;font-weight:800;color:{pnl_color}">${total_pnl:+,.2f}</div>
+  </div>
+  <div class="card" style="text-align:center;padding:14px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase">฿ (THB)</div>
+    <div style="font-size:24px;font-weight:800;color:{pnl_color}">฿{total_pnl*thb:+,.0f}</div>
+  </div>
+  <div class="card" style="text-align:center;padding:14px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase">จำนวน Trade</div>
+    <div style="font-size:24px;font-weight:800">{len(trades)}</div>
+  </div>
+  <div class="card" style="text-align:center;padding:14px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase">Win Rate</div>
+    <div style="font-size:24px;font-weight:800;color:{'var(--green)' if win_rate>=50 else 'var(--red)'}">{win_rate:.1f}%</div>
+  </div>
+</div>
+
+<!-- Add Trade Form -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">💵 บันทึก Trade ที่ปิดแล้ว</div>
+  <form method="POST" action="/realized/add">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbol</div>
+        <input name="sym" placeholder="NVDA" style="width:100%;text-transform:uppercase" maxlength="10" required>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">วันที่ขาย</div>
+        <input name="date" type="date" style="width:100%" value="{datetime.now().strftime('%Y-%m-%d')}">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">จำนวน Qty</div>
+        <input name="qty" placeholder="จำนวนหุ้น" style="width:100%" type="number" step="0.01" required>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ต้นทุน/หุ้น ($)</div>
+        <input name="cost_per" placeholder="ราคาที่ซื้อ" style="width:100%" type="number" step="0.01" required>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ราคาขาย/หุ้น ($)</div>
+        <input name="sell_price" placeholder="ราคาที่ขาย" style="width:100%" type="number" step="0.01" required>
+      </div>
+      <div style="grid-column:span 2">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">โน้ต</div>
+        <input name="notes" placeholder="เหตุผลที่ขาย..." style="width:100%">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">💾 บันทึก</button>
+  </form>
+</div>
+
+<!-- Trades Table -->
+<div class="card">
+  <div class="card-hdr">📋 ประวัติ Realized Trade ({len(trades)} รายการ)</div>
+  {f'''<div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr>
+      <th>วันที่</th><th>Symbol</th><th>Qty</th><th>ต้นทุน/หุ้น</th>
+      <th>ราคาขาย</th><th>P&L $</th><th>P&L %</th><th>โน้ต</th><th></th>
+    </tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table></div>''' if trades else '<div style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีรายการ — เพิ่ม trade ที่ขายแล้วด้านบน</div>'}
+</div>
+"""
+    return _base("realized", "Realized P&L", html, user, ticker_html, "")
+
+
+def compare_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    port_syms = list(user.get("portfolio", {}).keys())
+    wl_syms   = user.get("watchlist", [])
+    suggest   = list(dict.fromkeys(port_syms + wl_syms))[:5]
+    default   = ",".join(suggest[:3]) if suggest else "NVDA,MSFT,GOOGL"
+
+    html = f"""
+<div class="card" style="margin-bottom:14px">
+  <div class="card-hdr">⚖️ เปรียบเทียบหุ้น (max 5 symbols)</div>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding-top:4px">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbols (คั่นด้วย ,)</div>
+      <input id="cmpSyms" value="{default}" placeholder="NVDA,MSFT,GOOGL"
+             style="width:240px;text-transform:uppercase">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ช่วงเวลา</div>
+      <select id="cmpPeriod" style="width:100px">
+        <option value="3mo">3 เดือน</option>
+        <option value="6mo">6 เดือน</option>
+        <option value="1y" selected>1 ปี</option>
+        <option value="2y">2 ปี</option>
+        <option value="5y">5 ปี</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="loadCompare()">⚖️ เปรียบเทียบ</button>
+  </div>
+</div>
+
+<div id="cmpStatus" style="color:var(--muted);font-size:12px;margin-bottom:8px"></div>
+
+<div class="card" id="cmpCard" style="display:none">
+  <div class="card-hdr">📈 Normalized Return (เริ่มต้น = 100)</div>
+  <div style="position:relative;height:340px">
+    <canvas id="cmpChart"></canvas>
+  </div>
+  <div id="cmpSummary" style="margin-top:12px;overflow-x:auto"></div>
+</div>
+"""
+
+    js = """
+const CMP_COLORS=['#2dd4bf','#f59e0b','#a78bfa','#f87171','#34d399'];
+let cmpChartInst=null;
+function loadCompare(){
+  const syms=document.getElementById('cmpSyms').value.toUpperCase().split(',').map(s=>s.trim()).filter(Boolean);
+  const period=document.getElementById('cmpPeriod').value;
+  if(syms.length<2){document.getElementById('cmpStatus').textContent='⚠️ ใส่อย่างน้อย 2 symbols';return;}
+  document.getElementById('cmpStatus').textContent='⏳ กำลังโหลด…';
+  document.getElementById('cmpCard').style.display='none';
+  fetch('/api/compare?syms='+syms.join(',')+'&period='+period)
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.error){document.getElementById('cmpStatus').textContent='❌ '+d.error;return;}
+      renderCompare(d);
+      document.getElementById('cmpStatus').textContent='✅ '+d.updated;
+      document.getElementById('cmpCard').style.display='';
+    }).catch(e=>{document.getElementById('cmpStatus').textContent='❌ '+e;});
+}
+function renderCompare(d){
+  const datasets=Object.entries(d.series).map(([sym,series],i)=>({
+    label:sym,
+    data:series.map(p=>({x:p.date,y:p.val})),
+    borderColor:CMP_COLORS[i%CMP_COLORS.length],
+    borderWidth:2,pointRadius:0,tension:.3,fill:false,
+  }));
+  if(cmpChartInst)cmpChartInst.destroy();
+  cmpChartInst=new Chart(document.getElementById('cmpChart').getContext('2d'),{
+    type:'line',data:{datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      scales:{
+        x:{type:'time',time:{unit:'month'},ticks:{color:'#787b86'},grid:{color:'#2a2e39'}},
+        y:{ticks:{color:'#787b86',callback:v=>(v-100).toFixed(1)+'%'},grid:{color:'#2a2e39'},
+           title:{display:true,text:'% Return (base 100)',color:'#787b86'}}
+      },
+      plugins:{legend:{labels:{color:'#d1d4dc',boxWidth:12}}}
+    }
+  });
+  // Summary table
+  let tbl='<table class="tbl"><thead><tr><th>Symbol</th><th style="text-align:right">ราคาเริ่ม</th><th style="text-align:right">ราคาปัจจุบัน</th><th style="text-align:right">ผลตอบแทน</th></tr></thead><tbody>';
+  for(const [sym,series] of Object.entries(d.series)){
+    const first=series[0]?.val||100;
+    const last=series[series.length-1]?.val||100;
+    const pct=last-100;
+    const col=pct>=0?'var(--green)':'var(--red)';
+    tbl+=`<tr><td><b>${sym}</b></td><td style="text-align:right">100.00</td><td style="text-align:right">${last.toFixed(2)}</td><td style="text-align:right;color:${col};font-weight:700">${pct>=0?'+':''}${pct.toFixed(2)}%</td></tr>`;
+  }
+  tbl+='</tbody></table>';
+  document.getElementById('cmpSummary').innerHTML=tbl;
+}
+document.addEventListener('DOMContentLoaded',loadCompare);
+"""
+    return _base("compare", "Stock Comparison", html, user, ticker_html, js)
+
+
+def macro_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+
+    html = """
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+  <div style="font-size:13px;color:var(--muted)">ตัวชี้วัด Macro เศรษฐกิจสหรัฐ — อัปเดต real-time จาก yfinance</div>
+  <button class="btn btn-primary btn-sm" onclick="loadMacro()">🔄 Refresh</button>
+</div>
+<div id="macroStatus" style="color:var(--muted);font-size:12px;margin-bottom:12px"></div>
+
+<!-- KPI Cards -->
+<div id="macroGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px"></div>
+
+<!-- Yield Curve Panel -->
+<div class="card" id="yieldPanel" style="display:none;margin-bottom:16px">
+  <div class="card-hdr">📉 Yield Curve Spread (10Y − 2Y)</div>
+  <div id="yieldMsg" style="padding:12px;font-size:14px"></div>
+</div>
+
+<!-- Context Guide -->
+<div class="card">
+  <div class="card-hdr">📖 อ่านตัวชี้วัด Macro</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;padding:8px 0">
+    <div><span style="color:var(--teal);font-weight:700">VIX (Fear Index)</span><br>
+      &lt;15 = ตลาดสงบ · 15-25 = ปกติ · &gt;30 = panic/โอกาสซื้อ</div>
+    <div><span style="color:var(--teal);font-weight:700">10Y Yield</span><br>
+      ขึ้น = ดอกเบี้ยแพง (กดหุ้นเทค) · ลง = เงินไหลเข้าหุ้น</div>
+    <div><span style="color:var(--teal);font-weight:700">DXY (Dollar Index)</span><br>
+      แข็ง = กดทอง/Emerging Market · อ่อน = เอื้อสินค้าโภคภัณฑ์</div>
+    <div><span style="color:var(--teal);font-weight:700">Yield Spread (10Y-2Y)</span><br>
+      &lt;0 = Inverted (ส่งสัญญาณ recession) · &gt;0 = ปกติ</div>
+    <div><span style="color:var(--teal);font-weight:700">Oil (CL=F)</span><br>
+      ขึ้น = เงินเฟ้อ/กดดัน Fed · ลง = บรรเทาแรงกดดัน</div>
+    <div><span style="color:var(--teal);font-weight:700">BTC</span><br>
+      Risk-on indicator: ขึ้นพร้อม Nasdaq = risk appetite สูง</div>
+  </div>
+</div>
+"""
+
+    js = """
+const MACRO_CFG={
+  VIX:  {label:'VIX (Fear Index)', unit:'', icon:'😨',
+         badge:v=>v>30?['PANIC','var(--red)']:v>20?['ELEVATED','var(--gold)']:['CALM','var(--green)']},
+  '10Y':{label:'US 10Y Yield',   unit:'%', icon:'📊',
+         badge:v=>v>4.5?['HIGH','var(--red)']:v>3?['NORMAL','var(--gold)']:['LOW','var(--green)']},
+  '2Y': {label:'US 2Y Yield',    unit:'%', icon:'📊',
+         badge:v=>v>4.5?['HIGH','var(--red)']:['OK','var(--teal)']},
+  DXY:  {label:'US Dollar (DXY)',unit:'',  icon:'💵',
+         badge:v=>v>105?['STRONG','var(--red)']:v>100?['FIRM','var(--gold)']:['WEAK','var(--green)']},
+  OIL:  {label:'Crude Oil (WTI)',unit:'$', icon:'🛢️',
+         badge:v=>v>90?['HIGH','var(--red)']:v>70?['NORMAL','var(--gold)']:['LOW','var(--green)']},
+  GOLD: {label:'Gold (XAU/USD)', unit:'$', icon:'🥇',
+         badge:v=>['','var(--gold)']},
+  SPY:  {label:'S&P 500 ETF',   unit:'$', icon:'📈',
+         badge:v=>['','var(--teal)']},
+  BTC:  {label:'Bitcoin',        unit:'$', icon:'₿',
+         badge:v=>['','#f7931a']},
+};
+function loadMacro(){
+  document.getElementById('macroStatus').textContent='⏳ กำลังดึงข้อมูล…';
+  document.getElementById('macroGrid').innerHTML='';
+  fetch('/api/macro').then(r=>r.json()).then(d=>{
+    if(d.error){document.getElementById('macroStatus').textContent='❌ '+d.error;return;}
+    let grid='';
+    for(const [key,cfg] of Object.entries(MACRO_CFG)){
+      const item=d.data[key]||{price:0,chg:0};
+      const [badgeTxt,badgeCol]=cfg.badge(item.price);
+      const chgCol=item.chg>=0?'var(--green)':'var(--red)';
+      const arrow=item.chg>=0?'▲':'▼';
+      grid+=`<div class="card" style="padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;color:var(--muted)">${cfg.icon} ${cfg.label}</span>
+          ${badgeTxt?`<span style="font-size:10px;font-weight:700;color:${badgeCol};border:1px solid ${badgeCol};border-radius:10px;padding:1px 7px">${badgeTxt}</span>`:''}
+        </div>
+        <div style="font-size:26px;font-weight:800">${cfg.unit}${item.price.toLocaleString('en-US',{maximumFractionDigits:2})}</div>
+        <div style="font-size:12px;color:${chgCol};margin-top:2px">${arrow} ${Math.abs(item.chg).toFixed(2)}%</div>
+      </div>`;
+    }
+    document.getElementById('macroGrid').innerHTML=grid;
+    // Yield curve
+    const spread=d.yield_spread;
+    if(spread!==null){
+      const col=spread<0?'var(--red)':spread<0.5?'var(--gold)':'var(--green)';
+      const msg=spread<0
+        ?`⚠️ Inverted Yield Curve: Spread = <b style="color:var(--red)">${spread.toFixed(3)}%</b> — สัญญาณเตือน Recession`
+        :`✅ Normal Yield Curve: Spread = <b style="color:var(--green)">${spread.toFixed(3)}%</b>`;
+      document.getElementById('yieldMsg').innerHTML=msg;
+      document.getElementById('yieldPanel').style.display='';
+    }
+    document.getElementById('macroStatus').textContent='✅ อัปเดต '+d.updated;
+  }).catch(e=>{document.getElementById('macroStatus').textContent='❌ '+e;});
+}
+document.addEventListener('DOMContentLoaded',loadMacro);
+"""
+    return _base("macro", "Macro Overview", html, user, ticker_html, js)
 
 
 LOADING_PAGE = """<!DOCTYPE html>
