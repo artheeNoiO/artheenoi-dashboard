@@ -10,7 +10,7 @@ services:
       - key: ADMIN_PASSWORD
         value: artheenoi2026
       - key: REFRESH_MINUTES
-        value: "30"
+        value: "15"
       - key: MARKETAUX_KEY
         sync: false
       - key: OPENROUTER_API_KEY
