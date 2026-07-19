@@ -1099,12 +1099,15 @@ def build_arthee_context(macro: dict, top_stocks: list, news_headlines: list = N
     lines = ["=== สถานการณ์ตลาดวันนี้ ==="]
 
     # Macro
+    def _fmt(v, fmt):
+        try: return format(float(v), fmt)
+        except: return str(v) if v is not None else '?'
     lines.append(f"Fed Rate: {macro.get('fed_rate', '?')}%  |  "
                  f"Yield Curve (10Y-2Y): {macro.get('yield_curve', '?')}  |  "
-                 f"VIX: {macro.get('vix', '?'):.1f}  |  "
-                 f"DXY: {macro.get('dxy', '?'):.1f}  |  "
-                 f"Oil: ${macro.get('oil', '?'):.0f}  |  "
-                 f"Gold: ${macro.get('gold', '?'):.0f}")
+                 f"VIX: {_fmt(macro.get('vix'), '.1f')}  |  "
+                 f"DXY: {_fmt(macro.get('dxy'), '.1f')}  |  "
+                 f"Oil: ${_fmt(macro.get('oil'), '.0f')}  |  "
+                 f"Gold: ${_fmt(macro.get('gold'), '.0f')}")
     lines.append(f"Regime: {macro.get('regime','?')}  |  "
                  f"Rate Env: {macro.get('rate_env','?')}  |  "
                  f"Risk: {macro.get('risk_level','?')}")

@@ -2088,14 +2088,17 @@ def screener_page(user: dict, market_data: dict, macro: dict,
 
     picks_rows = ""
     for p in picks[:60]:
-        sym    = p.get("sym") or p.get("t", "")
+        if isinstance(p, str):
+            sym = p; action = "WATCH"; sector = ""; score = 0
+        else:
+            sym    = p.get("sym") or p.get("t", "")
+            action = p.get("action", "NEUTRAL")
+            sector = p.get("sector") or p.get("s", "")
+            score  = p.get("ai_score") or 0
         d      = market_data.get(sym, {})
         price  = d.get("price", 0)
         chg    = d.get("change_pct") or d.get("chg") or 0
         rsi    = d.get("rsi")
-        action = p.get("action", "NEUTRAL")
-        sector = p.get("sector") or p.get("s", "")
-        score  = p.get("ai_score", 0)
         note   = next((e.get("note","") for e in VAULT if e["t"]==sym), "")
         tier   = next((e.get("tier", 2) for e in VAULT if e["t"]==sym), 2)
         pct52  = ""
