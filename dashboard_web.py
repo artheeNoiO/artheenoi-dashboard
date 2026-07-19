@@ -891,8 +891,8 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
     <div class="card-hdr" style="margin-bottom:0">📈 Portfolio Value History</div>
     <span style="font-size:11px;color:var(--muted)" id="hist-status">กำลังโหลด...</span>
   </div>
-  <div style="position:relative;height:160px;width:100%">
-    <canvas id="portHistChart"></canvas>
+  <div style="position:relative;height:160px;width:100%;overflow:hidden">
+    <canvas id="portHistChart" style="display:block"></canvas>
   </div>
 </div>
 
