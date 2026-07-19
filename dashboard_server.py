@@ -1207,6 +1207,39 @@ def api_alerts():
     return jsonify({"active": active})
 
 
+@app.route("/api/alert-log", methods=["POST"])
+@login_required
+def api_alert_log():
+    """Browser calls this when a price alert triggers — append to alert_history."""
+    uname = session["username"]
+    data  = request.json or {}
+    sym   = data.get("sym", "").upper()
+    if not sym:
+        return jsonify({"ok": False})
+    entry = {
+        "sym": sym,
+        "condition": data.get("condition", ""),
+        "target": data.get("target", 0),
+        "actual": data.get("actual", 0),
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    with _users_lock:
+        users = load_users()
+        hist = users[uname].setdefault("alert_history", [])
+        hist.append(entry)
+        users[uname]["alert_history"] = hist[-200:]  # keep 200 entries
+        save_users(users)
+    return jsonify({"ok": True})
+
+
+@app.route("/alerts/clear-log", methods=["POST"])
+@login_required
+def alerts_clear_log():
+    uname = session["username"]
+    update_user_fields(uname, {"alert_history": []})
+    return redirect("/alerts")
+
+
 @app.route("/api/prices")
 @login_required
 def api_prices():
@@ -1583,6 +1616,63 @@ def scanner():
         return dw.LOADING_PAGE
     user = _inject_active_portfolio(get_user(session["username"]))
     return dw.scanner_page(user, mkt)
+
+@app.route("/api/correlation")
+@login_required
+def api_correlation():
+    """Return correlation matrix for requested symbols using 1Y daily returns."""
+    raw = request.args.get("syms", "")
+    syms = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    if len(syms) < 2:
+        return jsonify({"error": "ต้องการอย่างน้อย 2 symbols"})
+    syms = syms[:15]  # cap at 15
+    try:
+        import yfinance as yf
+        import pandas as pd
+        closes = {}
+        for sym in syms:
+            try:
+                hist = yf.download(sym, period="1y", interval="1d",
+                                   progress=False, auto_adjust=True)
+                if not hist.empty and "Close" in hist.columns:
+                    closes[sym] = hist["Close"].squeeze()
+            except Exception:
+                pass
+        if len(closes) < 2:
+            return jsonify({"error": "ดึงข้อมูลไม่ได้ — ลองใหม่อีกครั้ง"})
+        df = pd.DataFrame(closes).dropna()
+        rets = df.pct_change().dropna()
+        corr = rets.corr()
+        valid = list(corr.columns)
+        matrix = [[round(corr.loc[r, c], 4) for c in valid] for r in valid]
+        return jsonify({
+            "syms": valid,
+            "matrix": matrix,
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/correlation")
+@login_required
+def correlation():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.correlation_page(user, mkt)
+
+
+@app.route("/report")
+@login_required
+def report():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.report_page(user, mkt or {}, thb or 34.0)
+
 
 @app.route("/refresh", methods=["POST", "GET"])
 @login_required

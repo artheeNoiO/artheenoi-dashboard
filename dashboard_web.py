@@ -312,6 +312,13 @@ async function _checkBrowserAlerts() {
           `Price $${price.toFixed(2)} — ${a.condition} $${a.price} triggered!`,
           dir
         );
+        // Log triggered alert to server
+        fetch('/api/alert-log', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({alert_id: a.id, sym: a.sym,
+            condition: a.condition, target: a.price, actual: price})
+        }).catch(()=>{});
       } else if (!triggered) {
         _lastAlertCheck[key] = false;
       }
@@ -350,7 +357,9 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("alerts",    "🔔", "Alerts"),
         ("calendar",  "📅", "Calendar"),
         ("options",   "⚙",  "Options"),
-        ("backtest",  "⏪", "Backtest"),
+        ("backtest",    "⏪", "Backtest"),
+        ("correlation", "🔗", "Correlation"),
+        ("report",      "📄", "Report"),
     ]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -2828,11 +2837,12 @@ def screener_page(user: dict, market_data: dict, macro: dict,
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:0">
-  <button class="tab active" id="tabPicks" onclick="showTab('picks')">🎯 Top Picks ({len(picks)})</button>
-  <button class="tab" id="tabAll"   onclick="showTab('all')">🔭 Browse All ({summary['total']})</button>
-  <button class="tab" id="tabUnder" onclick="showTab('under')">👀 Under Radar ({len(tier3)})</button>
-  <button class="tab" id="tabSect" onclick="showTab('sect')">📊 Sectors</button>
+<div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap">
+  <button class="tab active" id="tabPicks"  onclick="showTab('picks')">🎯 Top Picks ({len(picks)})</button>
+  <button class="tab" id="tabAll"           onclick="showTab('all')">🔭 Browse All ({summary['total']})</button>
+  <button class="tab" id="tabUnder"         onclick="showTab('under')">👀 Under Radar ({len(tier3)})</button>
+  <button class="tab" id="tabSect"          onclick="showTab('sect')">📊 Sectors</button>
+  <button class="tab" id="tabCustom"        onclick="showTab('custom')">⚙️ Custom Filter</button>
 </div>
 
 <!-- Tab: Top Picks -->
@@ -2904,6 +2914,73 @@ def screener_page(user: dict, market_data: dict, macro: dict,
   </div>
 </div>
 
+<!-- Tab: Custom Filter -->
+<div id="paneCustom" style="display:none">
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-hdr">⚙️ Custom Screener — ตั้ง filter เอง</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:14px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">RSI min</div>
+        <input type="number" id="cf-rsi-min" placeholder="0" min="0" max="100" style="width:100%">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">RSI max</div>
+        <input type="number" id="cf-rsi-max" placeholder="100" min="0" max="100" style="width:100%">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Change % min</div>
+        <input type="number" id="cf-chg-min" placeholder="-99" step="0.1" style="width:100%">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Change % max</div>
+        <input type="number" id="cf-chg-max" placeholder="99" step="0.1" style="width:100%">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Sector</div>
+        <select id="cf-sector" style="width:100%">
+          <option value="">All Sectors</option>
+          {''.join(f'<option value="{s}">{s}</option>' for s in sorted({e['s'] for e in VAULT}))}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Tier</div>
+        <select id="cf-tier" style="width:100%">
+          <option value="">All Tiers</option>
+          <option value="1">🔵 Blue-chip</option>
+          <option value="2">🟡 Growth</option>
+          <option value="3">🔴 Under Radar</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Signal</div>
+        <select id="cf-signal" style="width:100%">
+          <option value="">All Signals</option>
+          <option value="BUY">BUY</option>
+          <option value="WATCH">WATCH</option>
+          <option value="WAIT">WAIT</option>
+          <option value="NEUTRAL">NEUTRAL</option>
+          <option value="AVOID">AVOID</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary" onclick="runCustomFilter()">🔍 Filter</button>
+      <button class="btn btn-ghost" onclick="clearCustomFilter()">✕ Clear</button>
+      <span id="cf-count" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+  </div>
+  <div class="card">
+    <div style="overflow-x:auto">
+    <table class="tbl" id="cf-results-table">
+      <thead><tr>
+        <th>Symbol</th><th>Sector</th><th>Tier</th><th>ราคา</th><th>วันนี้</th><th>RSI</th><th>Signal</th><th>Add</th>
+      </tr></thead>
+      <tbody id="cf-results"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">กด Filter เพื่อค้นหา</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
 <!-- Quick-Add Modal -->
 <div id="qadd-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;width:320px;max-width:90vw">
@@ -2941,12 +3018,60 @@ function quickAdd(sym, price) {
 }
 // Tab switching
 function showTab(name) {
-  ['picks','all','under','sect'].forEach(t => {
+  ['picks','all','under','sect','custom'].forEach(t => {
     document.getElementById('pane'+t.charAt(0).toUpperCase()+t.slice(1)).style.display = t===name?'':'none';
     const btn = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
     if(btn) btn.classList.toggle('active', t===name);
   });
 }
+
+// Custom screener filter
+const _VAULT_DATA = {vault_data_json};
+function runCustomFilter() {{
+  const rsiMin  = parseFloat(document.getElementById('cf-rsi-min').value)  || 0;
+  const rsiMax  = parseFloat(document.getElementById('cf-rsi-max').value)  || 100;
+  const chgMin  = parseFloat(document.getElementById('cf-chg-min').value);
+  const chgMax  = parseFloat(document.getElementById('cf-chg-max').value);
+  const sector  = document.getElementById('cf-sector').value;
+  const tier    = document.getElementById('cf-tier').value;
+  const signal  = document.getElementById('cf-signal').value;
+  const results = _VAULT_DATA.filter(s => {{
+    if (s.rsi === null) return false;
+    if (s.rsi < rsiMin || s.rsi > rsiMax) return false;
+    if (!isNaN(chgMin) && s.chg < chgMin) return false;
+    if (!isNaN(chgMax) && s.chg > chgMax) return false;
+    if (sector && s.sector !== sector) return false;
+    if (tier && String(s.tier) !== tier) return false;
+    if (signal && s.signal !== signal) return false;
+    return true;
+  }});
+  document.getElementById('cf-count').textContent = results.length + ' หุ้นที่ตรงเงื่อนไข';
+  const tierCols = {{'1':'var(--blue)','2':'var(--gold)','3':'var(--red)'}};
+  const tierLabels = {{'1':'🔵 Blue-chip','2':'🟡 Growth','3':'🔴 Under Radar'}};
+  document.getElementById('cf-results').innerHTML = results.slice(0,100).map(s => {{
+    const pc = s.chg >= 0 ? 'var(--green)' : 'var(--red)';
+    const rsic = s.rsi >= 70 ? '#ef4444' : s.rsi <= 30 ? '#22c55e' : '#f59e0b';
+    const sigcls = s.signal==='BUY'?'badge-buy':s.signal==='AVOID'?'badge-avoid':s.signal==='WATCH'?'badge-watch':'badge-neutral';
+    return `<tr>
+      <td><b>${{s.sym}}</b></td>
+      <td style="font-size:11px;color:var(--muted)">${{s.sector}}</td>
+      <td style="font-size:11px;color:${{tierCols[s.tier]||'var(--mid)'}}"><b>${{tierLabels[s.tier]||''}}</b></td>
+      <td>${{s.price?'$'+s.price.toLocaleString('en-US',{{minimumFractionDigits:2,maximumFractionDigits:2}}):'—'}}</td>
+      <td style="color:${{pc}}">${{s.chg>=0?'+':''}}${{s.chg.toFixed(2)}}%</td>
+      <td style="color:${{rsic}};font-weight:700">${{s.rsi||'—'}}</td>
+      <td><span class="badge ${{sigcls}}">${{s.signal}}</span></td>
+      <td><button class="btn-qadd" onclick="quickAdd('${{s.sym}}',${{s.price||0}})">+ Add</button></td>
+    </tr>`;
+  }}).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">ไม่พบหุ้นที่ตรงเงื่อนไข</td></tr>';
+}}
+function clearCustomFilter() {{
+  ['cf-rsi-min','cf-rsi-max','cf-chg-min','cf-chg-max'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('cf-sector').value='';
+  document.getElementById('cf-tier').value='';
+  document.getElementById('cf-signal').value='';
+  document.getElementById('cf-count').textContent='';
+  document.getElementById('cf-results').innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">กด Filter เพื่อค้นหา</td></tr>';
+}}
 // Vault search + filter
 let _activeSector = '';
 function filterVault() {
@@ -2972,6 +3097,23 @@ function filterSector(el, sec) {
   filterVault();
 }
 """
+
+    # Build vault data JSON for custom screener
+    vault_data = []
+    for e in VAULT:
+        d = market_data.get(e["t"], {})
+        price = d.get("price", 0)
+        chg   = d.get("change_pct") or d.get("chg") or 0
+        closes = d.get("closes", [])
+        rsi = _calc_rsi(closes) if len(closes) >= 15 else d.get("rsi")
+        # simple signal from RSI
+        sig = "BUY" if (rsi and rsi <= 35) else "WATCH" if (rsi and rsi <= 45) else "AVOID" if (rsi and rsi >= 75) else "WAIT" if (rsi and rsi >= 65) else "NEUTRAL"
+        vault_data.append({
+            "sym": e["t"], "sector": e.get("s",""), "tier": e.get("tier", 2),
+            "price": round(price, 2), "chg": round(chg, 2),
+            "rsi": round(rsi, 1) if rsi else None, "signal": sig,
+        })
+    js = js.replace("{vault_data_json}", json.dumps(vault_data))
 
     return _base("screener", "Stock Screener", html, user, "", js)
 
@@ -2999,7 +3141,9 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("alerts",    "🔔", "Alerts"),
         ("calendar",  "📅", "Calendar"),
         ("options",   "⚙",  "Options"),
-        ("backtest",  "⏪", "Backtest"),
+        ("backtest",    "⏪", "Backtest"),
+        ("correlation", "🔗", "Correlation"),
+        ("report",      "📄", "Report"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -3499,6 +3643,8 @@ def alerts_page(user: dict, market_data: dict) -> str:
 
     active_alerts   = [a for a in alerts if a.get("active") and not a.get("triggered_at")]
     triggered_alerts= [a for a in reversed(alerts) if a.get("triggered_at")][:10]
+    # Full alert history from separate log
+    alert_history = list(reversed(user.get("alert_history", [])))[:50]
 
     # Active alerts table
     act_rows = ""
@@ -3614,7 +3760,7 @@ def alerts_page(user: dict, market_data: dict) -> str:
 {f'<div class="card" style="margin-bottom:16px"><div class="card-hdr">⏸ Paused ({len(paused)})</div>{paused_html}</div>' if paused else ''}
 
 <!-- Triggered History -->
-<div class="card">
+<div class="card" style="margin-bottom:16px">
   <div class="card-hdr">⚡ Triggered History (ล่าสุด 10)</div>
   <div style="overflow-x:auto">
     <table class="tbl">
@@ -3622,6 +3768,31 @@ def alerts_page(user: dict, market_data: dict) -> str:
       <tbody>{trig_rows or '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มี triggered alerts</td></tr>'}</tbody>
     </table>
   </div>
+</div>
+
+<!-- Full Alert Log -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="card-hdr" style="margin-bottom:0">📋 Alert Log (browser-triggered, ล่าสุด 50)</div>
+    <form method="POST" action="/alerts/clear-log" style="margin:0">
+      <button class="btn btn-danger btn-sm" type="submit" onclick="return confirm('ลบ log ทั้งหมด?')">🗑 Clear Log</button>
+    </form>
+  </div>
+  {f'''<div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr><th>Symbol</th><th>เงื่อนไข</th><th>Target</th><th>Actual Price</th><th>เวลา</th></tr></thead>
+    <tbody>{''.join(
+      f"""<tr>
+        <td class="sym">{h['sym']}</td>
+        <td style="color:var(--mid)">{h.get('condition','')}</td>
+        <td style="font-weight:700">${h.get('target',0):,.2f}</td>
+        <td style="color:{'var(--green)' if h.get('condition')=='above' else 'var(--red)'}">${h.get('actual',0):,.2f}</td>
+        <td style="color:var(--muted);font-size:11px">{h.get('ts','')}</td>
+      </tr>"""
+      for h in alert_history
+    )}</tbody>
+  </table>
+  </div>''' if alert_history else '<div style="text-align:center;color:var(--muted);padding:24px">ยังไม่มี log — alert จะถูกบันทึกอัตโนมัติเมื่อ trigger</div>'}
 </div>
 """
     return _base("alerts", "Price Alerts", html, user)
@@ -5154,6 +5325,264 @@ def _rebalancing_html(port_rows: list, total_val: float, user: dict) -> str:
   </table>
   </div>
 </div>"""
+
+
+def correlation_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+    # Build candidate symbols: portfolio + watchlist (max 20)
+    syms = list(dict.fromkeys(list(port.keys()) + watchlist))[:20]
+    # Filter to those with data
+    syms = [s for s in syms if market_data.get(s, {}).get("price")]
+
+    # Chips to toggle symbols
+    chips_html = "".join(
+        f'<span class="corr-chip active" data-sym="{s}" onclick="toggleSym(this)">{s}</span>'
+        for s in syms
+    )
+
+    html = f"""
+<div style="margin-bottom:16px">
+  <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+    เลือก symbol ที่ต้องการเปรียบเทียบ (ข้อมูล 1 ปีจาก yfinance · คลิก chip เพื่อ toggle)
+  </div>
+  <div id="symChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+    {chips_html if chips_html else '<span style="color:var(--muted)">ยังไม่มีหุ้นใน Portfolio / Watchlist</span>'}
+  </div>
+  <button class="btn btn-primary" onclick="loadCorr()">🔗 คำนวณ Correlation</button>
+</div>
+
+<div id="corrStatus" style="color:var(--muted);font-size:12px;margin-bottom:8px"></div>
+
+<!-- Matrix Table -->
+<div class="card" id="corrCard" style="display:none;overflow-x:auto">
+  <div class="card-hdr">📊 Correlation Matrix (Daily Return 1Y)</div>
+  <div id="corrMatrix"></div>
+</div>
+
+<!-- Legend -->
+<div id="corrLegend" style="display:none;margin-top:12px">
+  <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Legend</div>
+  <div style="display:flex;gap:4px;align-items:center;font-size:11px">
+    <span style="background:#c0392b;width:28px;height:14px;display:inline-block;border-radius:2px"></span>
+    <span style="color:var(--mid)">0.8+ สูงมาก (เคลื่อนไหวเหมือนกัน)</span>
+    <span style="background:#e67e22;width:28px;height:14px;display:inline-block;border-radius:2px;margin-left:10px"></span>
+    <span style="color:var(--mid)">0.5-0.8 ปานกลาง</span>
+    <span style="background:#27ae60;width:28px;height:14px;display:inline-block;border-radius:2px;margin-left:10px"></span>
+    <span style="color:var(--mid)">0-0.5 ต่ำ (diversified)</span>
+    <span style="background:#2980b9;width:28px;height:14px;display:inline-block;border-radius:2px;margin-left:10px"></span>
+    <span style="color:var(--mid)">&lt;0 Negative (hedge)</span>
+  </div>
+</div>
+"""
+
+    js = """
+function toggleSym(el){
+  el.classList.toggle('active');
+}
+function loadCorr(){
+  const chips = document.querySelectorAll('.corr-chip.active');
+  const syms = Array.from(chips).map(c=>c.dataset.sym);
+  if(syms.length < 2){
+    document.getElementById('corrStatus').textContent='⚠️ เลือกอย่างน้อย 2 symbols';
+    return;
+  }
+  document.getElementById('corrStatus').textContent='⏳ กำลังดึงข้อมูลและคำนวณ…';
+  document.getElementById('corrCard').style.display='none';
+  document.getElementById('corrLegend').style.display='none';
+  fetch('/api/correlation?syms='+syms.join(','))
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.error){
+        document.getElementById('corrStatus').textContent='❌ '+data.error;
+        return;
+      }
+      renderMatrix(data.syms, data.matrix);
+      document.getElementById('corrStatus').textContent='✅ อัปเดต '+data.updated;
+      document.getElementById('corrCard').style.display='';
+      document.getElementById('corrLegend').style.display='';
+    })
+    .catch(e=>{
+      document.getElementById('corrStatus').textContent='❌ Error: '+e;
+    });
+}
+function corrColor(v){
+  if(v >= 0.8) return '#c0392b';
+  if(v >= 0.6) return '#e67e22';
+  if(v >= 0.4) return '#d4ac0d';
+  if(v >= 0.2) return '#27ae60';
+  if(v >= 0)   return '#1abc9c';
+  return '#2980b9';
+}
+function renderMatrix(syms, matrix){
+  let html = '<table style="border-collapse:collapse;font-size:12px">';
+  html += '<tr><th style="padding:6px;color:var(--muted);background:var(--bg2)"></th>';
+  for(const s of syms)
+    html += `<th style="padding:6px 10px;color:var(--teal);background:var(--bg2)">${s}</th>`;
+  html += '</tr>';
+  for(let i=0;i<syms.length;i++){
+    html += `<tr><td style="padding:6px 10px;font-weight:700;color:var(--teal);background:var(--bg2);white-space:nowrap">${syms[i]}</td>`;
+    for(let j=0;j<syms.length;j++){
+      const v = matrix[i][j];
+      const bg = i===j ? 'var(--bg3)' : corrColor(v);
+      const txt = i===j ? '—' : v.toFixed(2);
+      const alpha = i===j ? 1 : Math.min(1, Math.abs(v)*1.2+0.2);
+      const style = i===j
+        ? `background:var(--bg3);color:var(--muted)`
+        : `background:${bg};color:#fff;opacity:${alpha.toFixed(2)}`;
+      html += `<td style="padding:6px 10px;text-align:center;${style}">${txt}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  document.getElementById('corrMatrix').innerHTML = html;
+}
+"""
+
+    extra_css = """<style>
+.corr-chip{
+  display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;
+  background:var(--bg3);color:var(--muted);cursor:pointer;border:1px solid var(--bg3);
+  transition:all .2s;
+}
+.corr-chip.active{background:var(--teal);color:#131722;border-color:var(--teal);}
+</style>"""
+
+    return _base("correlation", "Correlation Matrix", extra_css + html, user, ticker_html, js)
+
+
+# ─── Export Portfolio Report ─────────────────────────────────────────────────
+
+def report_page(user: dict, market_data: dict, thb: float) -> str:
+    """Printable portfolio report — full summary, positions, attribution."""
+    from datetime import datetime as _dt
+    port = user.get("portfolio", {})
+    display = user.get("display_name", "User")
+    today = _dt.now().strftime("%Y-%m-%d %H:%M")
+
+    # Build position rows
+    positions = []
+    total_val = 0.0
+    total_cost = 0.0
+    for sym, info in port.items():
+        qty = float(info.get("qty", 0) or 0)
+        cost_per = float(info.get("cost", 0) or 0)
+        d = market_data.get(sym, {})
+        price = float(d.get("price") or 0)
+        val = qty * price
+        cost_tot = qty * cost_per
+        pnl = val - cost_tot
+        pnl_pct = (pnl / cost_tot * 100) if cost_tot else 0
+        total_val += val
+        total_cost += cost_tot
+        positions.append({
+            "sym": sym, "qty": qty, "cost_per": cost_per,
+            "price": price, "val": val, "pnl": pnl, "pnl_pct": pnl_pct,
+        })
+    positions.sort(key=lambda x: -x["val"])
+    total_pnl = total_val - total_cost
+    total_pnl_pct = (total_pnl / total_cost * 100) if total_cost else 0
+
+    pos_rows = ""
+    for p in positions:
+        color = "#27ae60" if p["pnl"] >= 0 else "#e74c3c"
+        arrow = "▲" if p["pnl"] >= 0 else "▼"
+        pos_rows += f"""<tr>
+          <td><b>{p['sym']}</b></td>
+          <td style="text-align:right">{p['qty']:,.2f}</td>
+          <td style="text-align:right">${p['cost_per']:,.2f}</td>
+          <td style="text-align:right">${p['price']:,.2f}</td>
+          <td style="text-align:right">${p['val']:,.2f}</td>
+          <td style="text-align:right;color:{color}">{arrow} ${abs(p['pnl']):,.2f}</td>
+          <td style="text-align:right;color:{color}">{arrow} {p['pnl_pct']:+.2f}%</td>
+          <td style="text-align:right">{(p['val']/total_val*100) if total_val else 0:.1f}%</td>
+        </tr>"""
+
+    # Watchlist section
+    wl = user.get("watchlist", [])
+    wl_rows = ""
+    for sym in wl[:30]:
+        d = market_data.get(sym, {})
+        price = d.get("price", "—")
+        chg   = d.get("chg") or d.get("change_pct") or 0
+        color = "#27ae60" if float(chg or 0) >= 0 else "#e74c3c"
+        wl_rows += f'<tr><td><b>{sym}</b></td><td style="text-align:right">${price}</td><td style="text-align:right;color:{color}">{float(chg or 0):+.2f}%</td></tr>'
+
+    # Snapshot summary
+    snaps = user.get("portfolio_snapshots", [])
+    snap_note = ""
+    if len(snaps) >= 2:
+        first_val = snaps[0].get("value", 0)
+        last_val = snaps[-1].get("value", 0)
+        period_pnl = last_val - first_val
+        period_pct = (period_pnl / first_val * 100) if first_val else 0
+        snap_note = f"<p>📈 ช่วง {snaps[0].get('date','')} → {snaps[-1].get('date','')}: มูลค่าเปลี่ยนแปลง <b style='color:{'#27ae60' if period_pnl>=0 else '#e74c3c'}'>${period_pnl:+,.2f} ({period_pct:+.2f}%)</b></p>"
+
+    pnl_color = "#27ae60" if total_pnl >= 0 else "#e74c3c"
+
+    html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Portfolio Report — {display} — {today}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Segoe UI',sans-serif;background:#fff;color:#1a1a2e;padding:32px;max-width:1000px;margin:0 auto}}
+h1{{font-size:26px;font-weight:800;color:#1a1a2e;margin-bottom:4px}}
+h2{{font-size:16px;font-weight:700;color:#2d3748;margin:24px 0 10px;border-bottom:2px solid #e2e8f0;padding-bottom:4px}}
+.summary{{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:16px 0}}
+.kpi{{background:#f8fafc;border-radius:8px;padding:14px;border-left:4px solid #2dd4bf}}
+.kpi-lbl{{font-size:11px;color:#718096;text-transform:uppercase;letter-spacing:.5px}}
+.kpi-val{{font-size:22px;font-weight:800;margin-top:2px}}
+table{{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}}
+th{{background:#f1f5f9;padding:8px 10px;text-align:left;font-weight:600;color:#475569;font-size:11px;text-transform:uppercase}}
+td{{padding:7px 10px;border-bottom:1px solid #f1f5f9}}
+tr:last-child td{{border-bottom:none}}
+.footer{{margin-top:32px;font-size:11px;color:#718096;text-align:center}}
+@media print{{.no-print{{display:none}}}}
+</style>
+</head>
+<body>
+<div class="no-print" style="margin-bottom:16px;display:flex;gap:10px">
+  <button onclick="window.print()" style="padding:8px 18px;background:#2dd4bf;border:none;border-radius:6px;font-weight:700;cursor:pointer">🖨️ Print / Save PDF</button>
+  <button onclick="window.close()" style="padding:8px 18px;background:#e2e8f0;border:none;border-radius:6px;cursor:pointer">✕ Close</button>
+</div>
+
+<h1>📄 Portfolio Report</h1>
+<p style="color:#718096;margin-bottom:4px">ArtheeNoi Dashboard · {display} · สร้าง {today}</p>
+{snap_note}
+
+<h2>สรุปภาพรวม</h2>
+<div class="summary">
+  <div class="kpi"><div class="kpi-lbl">มูลค่ารวม (USD)</div><div class="kpi-val">${total_val:,.2f}</div></div>
+  <div class="kpi"><div class="kpi-lbl">มูลค่ารวม (THB)</div><div class="kpi-val">฿{total_val*thb:,.0f}</div></div>
+  <div class="kpi"><div class="kpi-lbl">ต้นทุนรวม</div><div class="kpi-val">${total_cost:,.2f}</div></div>
+  <div class="kpi"><div class="kpi-lbl">P&L รวม</div><div class="kpi-val" style="color:{pnl_color}">${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%)</div></div>
+  <div class="kpi"><div class="kpi-lbl">จำนวนหุ้น</div><div class="kpi-val">{len(positions)}</div></div>
+  <div class="kpi"><div class="kpi-lbl">อัตราแลกเปลี่ยน</div><div class="kpi-val">฿{thb:.2f}/USD</div></div>
+</div>
+
+<h2>รายการ Portfolio</h2>
+{f'''<table>
+  <thead><tr>
+    <th>Symbol</th><th>Qty</th><th>ต้นทุน/หุ้น</th><th>ราคาปัจจุบัน</th>
+    <th>มูลค่า</th><th>P&L $</th><th>P&L %</th><th>Weight</th>
+  </tr></thead>
+  <tbody>{pos_rows}</tbody>
+</table>''' if positions else '<p style="color:#718096">ไม่มีหุ้นใน portfolio</p>'}
+
+{f'''<h2>Watchlist ({len(wl)} symbols)</h2>
+<table style="max-width:360px">
+  <thead><tr><th>Symbol</th><th>ราคา</th><th>เปลี่ยนแปลง</th></tr></thead>
+  <tbody>{wl_rows}</tbody>
+</table>''' if wl else ''}
+
+<div class="footer">สร้างโดย ArtheeNoi Dashboard · {today} · ข้อมูลอาจมีความล่าช้า ไม่ใช่คำแนะนำการลงทุน</div>
+</body></html>"""
+
+    # Return full HTML (not wrapped in _base — this is a standalone printable page)
+    return html
 
 
 LOADING_PAGE = """<!DOCTYPE html>
