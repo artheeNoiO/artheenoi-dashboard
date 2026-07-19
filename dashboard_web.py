@@ -1030,8 +1030,8 @@ def gold_page(user: dict, market_data: dict) -> str:
   <div class="card-sm">
     <div class="card-hdr">Moving Averages</div>
     <div style="font-size:12px;line-height:1.9;color:var(--mid)">
-      MA20 <b style="color:{'var(--green)' if ma20 and price>ma20 else 'var(--red)'}">${ma20:,.0f}</b><br>
-      MA50 <b style="color:{'var(--green)' if ma50 and price>ma50 else 'var(--red)'}">${ma50:,.0f}</b>
+      MA20 <b style="color:{'var(--green)' if ma20 and price>ma20 else 'var(--red)'}">{'$'+f'{ma20:,.0f}' if ma20 else '—'}</b><br>
+      MA50 <b style="color:{'var(--green)' if ma50 and price>ma50 else 'var(--red)'}">{'$'+f'{ma50:,.0f}' if ma50 else '—'}</b>
       {f'<br>MA200 <b style="color:{chr(34)}{"var(--green)" if ma200 and price>ma200 else "var(--red)"}{chr(34)}">${ma200:,.0f}</b>' if ma200 else ''}
     </div>
   </div>
@@ -1217,12 +1217,12 @@ def crypto_page(user: dict, market_data: dict) -> str:
     <div class="card-sm">
       <div style="font-size:11px;color:var(--muted)">Price vs MA20</div>
       <div style="font-size:16px;font-weight:800;margin-top:4px;color:{'var(--green)' if ma20 and price>ma20 else 'var(--red)'}">{'Above ↑' if ma20 and price>ma20 else 'Below ↓'}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">MA20 = ${ma20:,.0f}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">MA20 = {'$'+f'{ma20:,.0f}' if ma20 else '—'}</div>
     </div>
     <div class="card-sm">
       <div style="font-size:11px;color:var(--muted)">Price vs MA50</div>
       <div style="font-size:16px;font-weight:800;margin-top:4px;color:{'var(--green)' if ma50 and price>ma50 else 'var(--red)'}">{'Above ↑' if ma50 and price>ma50 else 'Below ↓'}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">MA50 = ${ma50:,.0f}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">MA50 = {'$'+f'{ma50:,.0f}' if ma50 else '—'}</div>
     </div>
     <div class="card-sm">
       <div style="font-size:11px;color:var(--muted)">MA Cross</div>
