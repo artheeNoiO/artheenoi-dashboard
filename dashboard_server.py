@@ -1,6 +1,6 @@
 """
-dashboard_server.py — ArtheeNoi Stock Dashboard (Multi-User Web App)
-ระบบ login ของใครของมัน: portfolio แยก + dashboard เป็นส่วนตัว
+dashboard_server.py — ArtheeNoi Stock Dashboard v2 (Multi-User Web App)
+ระบบ login ของใครของมัน + 5 pages: Stocks / Gold / Crypto / DCA / News
 Deploy ขึ้น Render ฟรี — เพื่อนเปิด URL ได้เลย
 
 Usage:
@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 ETFS   = ["QQQ", "IVV", "DIA"]
 GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
+MARKETAUX_KEY = os.environ.get("MARKETAUX_KEY", "")
 
 # ─── Password ────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,34 @@ _mkt_cache = {"data": None, "macro": None, "thb": 35.0, "updated": None}
 _gen_lock  = threading.Lock()   # ป้องกัน generate() race condition
 _refreshing = threading.Event()
 
+def _enrich_with_closes(mkt: dict, syms: list):
+    """Fetch 60-day closes + 52W high/low via yfinance and merge into mkt dict."""
+    try:
+        import yfinance as yf
+        import warnings; warnings.filterwarnings("ignore")
+        batch = " ".join(syms)
+        tickers = yf.Tickers(batch)
+        for sym in syms:
+            try:
+                t = tickers.tickers.get(sym)
+                if not t:
+                    continue
+                hist = t.history(period="1y", interval="1d")
+                closes = hist["Close"].dropna().tolist()
+                if not closes:
+                    continue
+                fi = t.fast_info
+                entry = mkt.setdefault(sym, {})
+                entry["closes"] = [round(c, 4) for c in closes]
+                if not entry.get("price"):
+                    entry["price"] = round(closes[-1], 4)
+                entry.setdefault("high", round(fi.year_high or max(closes), 2))
+                entry.setdefault("low",  round(fi.year_low  or min(closes), 2))
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning(f"[Closes] enrich failed: {e}")
+
 def _all_user_symbols() -> list:
     syms = set(ETFS + [GOLD, CRYPTO])
     with _users_lock:
@@ -150,6 +179,9 @@ def _do_market_refresh():
         for s in all_syms:
             if not mkt.get(s, {}).get("price"):
                 mkt[s] = dwu.get_quote(s)
+
+        # Enrich with historical closes (for RSI, sparklines, 52W range)
+        _enrich_with_closes(mkt, all_syms)
 
         # Enrich (optional, graceful fail)
         try:
@@ -361,7 +393,7 @@ input:focus{border-color:#d97757;outline:none}
 <body>
 <div class="wrap">
   <div class="nav">
-    <a href="/">← Dashboard</a>
+    <a href="/stocks">← Dashboard</a>
     <a href="/logout">Logout</a>
     {% if is_admin %}<a href="/admin">👑 Admin</a>{% endif %}
   </div>
@@ -496,7 +528,7 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
 <body>
 <div class="wrap">
   <div class="nav">
-    <a href="/">← Dashboard</a>
+    <a href="/stocks">← Dashboard</a>
     <a href="/settings">Settings</a>
     <a href="/logout">Logout</a>
   </div>
@@ -632,49 +664,106 @@ def logout():
     session.clear()
     return redirect("/login")
 
+def _get_mkt():
+    """Return (mkt, macro, thb) from cache or ({}, {}, 35.0) if not ready."""
+    with _mkt_lock:
+        return (
+            _mkt_cache.get("data") or {},
+            _mkt_cache.get("macro") or {},
+            _mkt_cache.get("thb", 35.0),
+        )
+
+def _require_mkt():
+    """Return True if market data is ready, False if still loading."""
+    with _mkt_lock:
+        return bool(_mkt_cache.get("data"))
+
 @app.route("/")
 @login_required
 def index():
-    uname = session["username"]
-    user  = get_user(uname)
+    return redirect("/stocks")
+
+@app.route("/stocks")
+@login_required
+def stocks():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, macro, thb = _get_mkt()
+    user = get_user(session["username"])
     if not user:
         return redirect("/logout")
+    return dw.stocks_page(user, mkt, macro, thb)
 
-    # ถ้าไม่มีข้อมูลตลาด → แสดง loading
-    with _mkt_lock:
-        has_data = _mkt_cache.get("data") is not None
+@app.route("/gold")
+@login_required
+def gold():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.gold_page(user, mkt)
 
-    if not has_data:
-        return _LOADING_HTML
+@app.route("/crypto")
+@login_required
+def crypto():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.crypto_page(user, mkt)
 
-    # สร้าง dashboard ถ้ายังไม่มี cache
-    html = user.get("dashboard_html")
-    if not html:
-        html = generate_for_user(uname)
-        if html:
-            update_user_fields(uname, {"dashboard_html": html,
-                                       "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+@app.route("/dca")
+@login_required
+def dca():
+    import dashboard_web as dw
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    mkt, _, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.dca_page(user, mkt)
 
-    return html or _LOADING_HTML
+@app.route("/news")
+@login_required
+def news():
+    import dashboard_web as dw
+    _, macro, _ = _get_mkt()
+    user = get_user(session["username"])
+    return dw.news_page(user, macro, MARKETAUX_KEY)
+
+@app.route("/api/prices")
+@login_required
+def api_prices():
+    """Live price JSON for frontend polling (every 90s)."""
+    mkt, _, _ = _get_mkt()
+    user  = get_user(session["username"])
+    syms  = list(user.get("portfolio", {}).keys()) + user.get("watchlist", [])
+    syms += ETFS + [GOLD, CRYPTO]
+    data  = {}
+    for sym in set(syms):
+        d = mkt.get(sym)
+        if d and d.get("price"):
+            data[sym] = {
+                "price": d["price"],
+                "chg":   round(d.get("change_pct") or d.get("chg") or 0, 2),
+            }
+    return jsonify(data)
 
 @app.route("/refresh", methods=["POST", "GET"])
 @login_required
 def refresh_user():
     uname = session["username"]
-    with _mkt_lock:
-        has_data = _mkt_cache.get("data") is not None
-
-    if not has_data:
-        # Trigger market refresh first
+    if not _require_mkt():
         t = threading.Thread(target=_do_market_refresh, daemon=True)
         t.start()
-        return _LOADING_HTML
-
-    html = generate_for_user(uname)
-    if html:
-        update_user_fields(uname, {"dashboard_html": html,
-                                   "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
-    return redirect("/")
+        import dashboard_web as dw
+        return dw.LOADING_PAGE
+    # force invalidate user dashboard cache (legacy field)
+    update_user_fields(uname, {"dashboard_html": None,
+                               "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    return redirect("/stocks")
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
 
