@@ -1058,7 +1058,8 @@ def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
 @app.route("/api/prices")
 @login_required
 def api_prices():
-    """Live price JSON for frontend polling (every 90s)."""
+    """Live price JSON for frontend polling (every 60s). Includes RSI."""
+    import dashboard_web as dw
     mkt, _, thb = _get_mkt()
     user  = get_user(session["username"])
     syms  = list(user.get("portfolio", {}).keys()) + user.get("watchlist", [])
@@ -1067,11 +1068,74 @@ def api_prices():
     for sym in set(syms):
         d = mkt.get(sym)
         if d and d.get("price"):
+            closes = d.get("closes", [])
+            rsi = dw._calc_rsi(closes) if len(closes) >= 15 else None
             data[sym] = {
                 "price": d["price"],
                 "chg":   round(d.get("change_pct") or d.get("chg") or 0, 2),
+                "rsi":   round(rsi, 1) if rsi else None,
             }
     return jsonify(data)
+
+
+@app.route("/api/compare")
+@login_required
+def api_compare():
+    """Return OHLCV closes for multiple symbols for compare chart."""
+    syms_raw = request.args.get("syms", "")
+    period   = request.args.get("period", "6mo")
+    syms = [s.strip().upper() for s in syms_raw.split(",") if s.strip()][:5]
+    if not syms:
+        return jsonify({"error": "no symbols"})
+    try:
+        import yfinance as yf
+        result = {}
+        for sym in syms:
+            try:
+                hist = yf.Ticker(sym).history(period=period)
+                if hist.empty:
+                    continue
+                closes = [round(float(v), 4) for v in hist["Close"].tolist()]
+                dates  = [str(d.date()) for d in hist.index.tolist()]
+                result[sym] = {"closes": closes, "dates": dates}
+            except Exception:
+                continue
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/heatmap")
+@login_required
+def heatmap():
+    import dashboard_web as dw
+    mkt, macro, _ = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = get_user(session["username"])
+    return dw.heatmap_page(user, mkt, macro)
+
+
+@app.route("/analytics")
+@login_required
+def analytics():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = get_user(session["username"])
+    return dw.analytics_page(user, mkt, thb)
+
+
+@app.route("/scanner")
+@login_required
+def scanner():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    if not _require_mkt():
+        return dw.LOADING_PAGE
+    user = get_user(session["username"])
+    return dw.scanner_page(user, mkt)
 
 @app.route("/refresh", methods=["POST", "GET"])
 @login_required

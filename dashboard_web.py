@@ -234,6 +234,9 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("paper",    "🧪", "Paper"),
         ("ai",       "🤖", "AI"),
         ("screener", "🔭", "Screener"),
+        ("heatmap",  "🟩", "Heatmap"),
+        ("analytics","📐", "Analytics"),
+        ("scanner",  "🔍", "Scanner"),
         ("chat",     "💬", "Chat"),
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
@@ -581,9 +584,9 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
         port_table += f"""
         <tr>
           <td><span class="sym">{r['sym']}</span></td>
-          <td>${r['price']:,.2f}</td>
-          <td class="{cc}">{cs}{r['chg']:.2f}%</td>
-          <td>{_rsi_bar(r.get('rsi'))}</td>
+          <td id="price-{r['sym']}" data-price="{r['price']}">${r['price']:,.2f}</td>
+          <td id="chg-{r['sym']}" class="{cc}">{cs}{r['chg']:.2f}%</td>
+          <td id="rsi-{r['sym']}">{_rsi_bar(r.get('rsi'))}</td>
           <td>{r['shares']}×${r['cost']}</td>
           <td class="{pc}">{ps}${r['pnl']:,.0f} <span style="font-size:10px;color:var(--muted)">({ps}{r['pnl_pct']:.1f}%)</span></td>
           <td class="{pc}" style="font-weight:700">{ps}฿{abs(r['pnl_thb']):,.0f}</td>
@@ -620,13 +623,13 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
             <div>
               <div style="font-weight:800;font-size:15px">{sym}</div>
-              <div style="color:var(--muted);font-size:11px;margin-top:1px">${d['price']:,.2f}</div>
+              <div id="price-{sym}" data-price="{d['price']}" style="color:var(--muted);font-size:11px;margin-top:1px">${d['price']:,.2f}</div>
             </div>
             {_signal_badge(action)}
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="font-size:12px;color:{chg_col};font-weight:700">{chg_s}{chg:.2f}%</span>
-            <span style="font-size:11px;color:var(--muted)">RSI <b style="color:{rsi_col}">{rsi or '—'}</b></span>
+            <span id="chg-{sym}" style="font-size:12px;color:{chg_col};font-weight:700">{chg_s}{chg:.2f}%</span>
+            <span style="font-size:11px;color:var(--muted)">RSI <b id="rsi-{sym}" style="color:{rsi_col}">{rsi or '—'}</b></span>
           </div>
           <div class="pbar"><div class="pbar-fill" style="width:{pct_range:.0f}%;background:var(--teal)"></div></div>
           <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--muted)">
@@ -638,6 +641,12 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
         </div>"""
 
     html = f"""
+<!-- Live indicator -->
+<div style="display:flex;align-items:center;margin-bottom:12px">
+  <span style="font-size:13px;font-weight:700;color:var(--text)">📊 Stocks Dashboard</span>
+  <span id="live-timer" style="font-size:11px;color:var(--mid);background:var(--bg3);padding:3px 8px;border-radius:4px;margin-left:8px">🟢 Live · Updates in 60s</span>
+</div>
+
 <!-- Summary bar -->
 <div class="g4" style="margin-bottom:16px">
   <div class="card-sm">
@@ -713,27 +722,52 @@ function drawSpark(sym, closes, color) {{
 }}
 {spark_js}
 
-// Auto-refresh prices every 90 sec
-let _refreshTimer = setInterval(async ()=>{{
+// Auto-refresh prices every 60 sec with countdown
+let _countdown = 60;
+function _startCountdown() {{
+  const el = document.getElementById('live-timer');
+  clearInterval(window._cdTimer);
+  _countdown = 60;
+  window._cdTimer = setInterval(() => {{
+    _countdown--;
+    if (el) el.textContent = `Updates in ${{_countdown}}s`;
+    if (_countdown <= 0) {{ clearInterval(window._cdTimer); _refreshPrices(); }}
+  }}, 1000);
+}}
+function _flash(id, up) {{
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.transition = 'background 0.2s';
+  el.style.background = up ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)';
+  setTimeout(() => el.style.background = '', 1500);
+}}
+async function _refreshPrices() {{
   try {{
     const r = await fetch('/api/prices');
-    if(r.ok) {{ const d = await r.json(); applyPrices(d); }}
-  }} catch(e) {{}}
-}}, 90000);
-
-function applyPrices(prices) {{
-  // Update ticker
-  for (const [sym, d] of Object.entries(prices)) {{
-    const els = document.querySelectorAll('[data-sym="'+sym+'"]');
-    els.forEach(el => {{
-      if (el.dataset.field === 'price') el.textContent = '$' + d.price.toLocaleString(undefined,{{minimumFractionDigits:2,maximumFractionDigits:2}});
-      if (el.dataset.field === 'chg') {{
-        el.textContent = (d.chg >= 0 ? '+' : '') + d.chg.toFixed(2) + '%';
-        el.className = d.chg >= 0 ? 'pos' : 'neg';
+    const data = await r.json();
+    for (const [sym, d] of Object.entries(data)) {{
+      if (sym.startsWith('_')) continue;
+      const priceEl = document.getElementById(`price-${{sym}}`);
+      const chgEl   = document.getElementById(`chg-${{sym}}`);
+      const rsiEl   = document.getElementById(`rsi-${{sym}}`);
+      if (priceEl && d.price) {{
+        const oldPrice = parseFloat(priceEl.dataset.price || '0');
+        const up = d.price >= oldPrice;
+        priceEl.textContent = `$${{d.price.toFixed(2)}}`;
+        priceEl.dataset.price = d.price;
+        if (oldPrice && Math.abs(d.price - oldPrice) > 0.001) _flash(`price-${{sym}}`, up);
       }}
-    }});
-  }}
+      if (chgEl && d.chg !== undefined) {{
+        const sign = d.chg >= 0 ? '+' : '';
+        chgEl.textContent = `${{sign}}${{d.chg.toFixed(2)}}%`;
+        chgEl.style.color = d.chg >= 0 ? 'var(--green)' : 'var(--red)';
+      }}
+      if (rsiEl && d.rsi) rsiEl.textContent = d.rsi.toFixed(1);
+    }}
+  }} catch(e) {{ console.warn('Price refresh error', e); }}
+  _startCountdown();
 }}
+document.addEventListener('DOMContentLoaded', () => {{ _startCountdown(); }});
 """
 
     return _base("stocks", "Stocks Dashboard", html, user, _ticker_html(market_data), js)
@@ -2307,6 +2341,9 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("paper",    "🧪", "Paper"),
         ("ai",       "🤖", "AI"),
         ("screener", "🔭", "Screener"),
+        ("heatmap",  "🟩", "Heatmap"),
+        ("analytics","📐", "Analytics"),
+        ("scanner",  "🔍", "Scanner"),
         ("chat",     "💬", "Chat"),
         ("alerts",   "🔔", "Alerts"),
         ("calendar", "📅", "Calendar"),
@@ -2396,8 +2433,30 @@ def charts_page(user: dict, market_data: dict, thb: float, sym: str | None = Non
       <button class="ind-btn active" id="btn-rsi" onclick="toggleInd('rsi')">RSI</button>
       <button class="ind-btn" id="btn-macd" onclick="toggleInd('macd')">MACD</button>
     </div>
+    <div class="tf-sep"></div>
+    <button class="ind-btn" id="compareBtn" onclick="toggleCompare()">➕ Compare</button>
     <span id="chartLoading" style="color:var(--mid);font-size:12px;margin-left:8px"></span>
   </div>
+</div>
+
+<!-- Compare Panel (hidden initially) -->
+<div id="comparePanel" class="card" style="display:none;margin-bottom:8px;padding:10px 16px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span style="font-size:12px;color:var(--mid);font-weight:600">Compare with (max 4):</span>
+    <input id="cmpInput1" type="text" placeholder="AAPL" style="width:80px;padding:5px 8px;font-size:12px;border-radius:4px">
+    <input id="cmpInput2" type="text" placeholder="MSFT" style="width:80px;padding:5px 8px;font-size:12px;border-radius:4px">
+    <input id="cmpInput3" type="text" placeholder="GOOGL" style="width:80px;padding:5px 8px;font-size:12px;border-radius:4px">
+    <input id="cmpInput4" type="text" placeholder="" style="width:80px;padding:5px 8px;font-size:12px;border-radius:4px">
+    <button class="btn btn-primary btn-sm" onclick="runCompare()">🔍 Compare</button>
+    <button class="btn btn-ghost btn-sm" onclick="exitCompare()">✕ Cancel</button>
+  </div>
+</div>
+
+<!-- Compare Chart Panel (hidden initially) -->
+<div id="compareChartPanel" class="chart-panel" style="display:none;margin-bottom:8px">
+  <div class="chart-panel-label" id="compareTitle">Comparison (normalized 100)</div>
+  <div id="chart-compare" style="width:100%;height:50vh;min-height:300px"></div>
+  <div id="compareLegend" style="padding:8px 12px;display:flex;gap:16px;flex-wrap:wrap;background:var(--bg3)"></div>
 </div>
 
 <!-- OHLCV Info Bar -->
@@ -2694,6 +2753,85 @@ function toggleInd(name) {{
     if(panel) panel.style.display=_indState[name]?'':'none';
   }}
   if(_currentCandles.length) updateData(_currentCandles);
+}}
+
+// ── Compare Mode ─────────────────────────────────────────────────────────────
+const COMPARE_COLORS = ['#2dd4bf','#f0b429','#ff6b35','#9c27b0','#ef5350'];
+let _compareMode = false;
+let _compareChart = null;
+
+function toggleCompare() {{
+  const panel = document.getElementById('comparePanel');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  if (panel.style.display !== 'none') document.getElementById('cmpInput1').focus();
+}}
+
+async function runCompare() {{
+  const inputs = ['cmpInput1','cmpInput2','cmpInput3','cmpInput4'];
+  const extras = inputs.map(id => document.getElementById(id).value.trim().toUpperCase()).filter(s => s);
+  const syms = [currentSym, ...extras];
+  if (syms.length < 2) {{ alert('เพิ่มอย่างน้อย 1 symbol เพื่อเปรียบเทียบ'); return; }}
+
+  document.getElementById('chartLoading').textContent = 'Loading compare...';
+  try {{
+    const r = await fetch('/api/compare?syms=' + syms.join(',') + '&period=' + currentPeriod);
+    const data = await r.json();
+    if (data.error) {{ document.getElementById('chartLoading').textContent = data.error; return; }}
+
+    _compareMode = true;
+    // Hide single-stock panels
+    document.getElementById('chart-main').closest('.chart-panel').style.display = 'none';
+    document.getElementById('panel-vol').style.display = 'none';
+    document.getElementById('panel-rsi').style.display = 'none';
+    document.getElementById('panel-macd').style.display = 'none';
+    document.getElementById('compareChartPanel').style.display = '';
+    document.getElementById('comparePanel').style.display = '';
+
+    const LC = LightweightCharts;
+    if (_compareChart) {{ _compareChart.remove(); _compareChart = null; }}
+    const cmpEl = document.getElementById('chart-compare');
+    _compareChart = LC.createChart(cmpEl, {{
+      layout:{{background:{{color:'#131722'}},textColor:'#d1d4dc'}},
+      grid:{{vertLines:{{color:'#2a2e39'}},horzLines:{{color:'#2a2e39'}}}},
+      rightPriceScale:{{borderColor:'#363a45'}},
+      timeScale:{{borderColor:'#363a45',timeVisible:true}},
+      crosshair:{{mode:LC.CrosshairMode.Normal}},
+      width: cmpEl.offsetWidth,
+      height: cmpEl.offsetHeight || 400,
+    }});
+
+    const legend = document.getElementById('compareLegend');
+    legend.innerHTML = '';
+    let colorIdx = 0;
+    for (const [sym, closes] of Object.entries(data)) {{
+      if (!closes || !closes.length) continue;
+      const base = closes[0].value;
+      if (!base) continue;
+      const normalized = closes.map(d => ({{time: d.time, value: parseFloat((d.value / base * 100).toFixed(2))}}));
+      const color = COMPARE_COLORS[colorIdx % COMPARE_COLORS.length];
+      const series = _compareChart.addLineSeries({{color, lineWidth:2, title:sym, lastValueVisible:true, priceLineVisible:false}});
+      series.setData(normalized);
+      const lastNorm = normalized[normalized.length-1].value;
+      const chgCmp = (lastNorm - 100).toFixed(2);
+      const signCmp = chgCmp >= 0 ? '+' : '';
+      legend.innerHTML += `<span style="color:${{color}};font-size:13px;font-weight:700">${{sym}} ${{signCmp}}${{chgCmp}}%</span>`;
+      colorIdx++;
+    }}
+    _compareChart.timeScale().fitContent();
+    document.getElementById('compareTitle').textContent = 'Comparison (normalized 100): ' + Object.keys(data).join(' vs ');
+    document.getElementById('chartLoading').textContent = '';
+  }} catch(e) {{ document.getElementById('chartLoading').textContent = 'Compare error'; console.error(e); }}
+}}
+
+function exitCompare() {{
+  _compareMode = false;
+  document.getElementById('comparePanel').style.display = 'none';
+  document.getElementById('compareChartPanel').style.display = 'none';
+  document.getElementById('chart-main').closest('.chart-panel').style.display = '';
+  if (_indState.vol) document.getElementById('panel-vol').style.display = '';
+  if (_indState.rsi) document.getElementById('panel-rsi').style.display = '';
+  if (_indState.macd) document.getElementById('panel-macd').style.display = '';
+  if (_compareChart) {{ _compareChart.remove(); _compareChart = null; }}
 }}
 """
     return _base("charts", f"Chart — {default_sym}", html, user, "", js)
@@ -3086,6 +3224,592 @@ function renderTable(tbodyId, rows, side) {{
 loadExpiries();
 """
     return _base("options", f"Options Chain — {sym}", html, user, "", js)
+
+
+# ─── HEATMAP PAGE ─────────────────────────────────────────────────────────────
+
+def heatmap_page(user: dict, market_data: dict, macro: dict) -> str:
+    port = user.get("portfolio", {})
+    watchlist = user.get("watchlist", [])
+
+    vault_list = []
+    try:
+        import at_stock_vault as v
+        vault_list = v.VAULT
+    except Exception:
+        pass
+
+    # Build symbol → {price, chg, sector, company}
+    all_stocks: dict = {}
+    for item in vault_list:
+        sym = item.get("t", "")
+        d = market_data.get(sym, {})
+        chg = d.get("chg") or d.get("change_pct") or 0
+        if d.get("price") and sym:
+            all_stocks[sym] = {"price": d["price"], "chg": chg,
+                               "sector": item.get("s", "Other"), "company": item.get("c", sym)}
+    # Ensure portfolio & watchlist included
+    for sym in list(port.keys()) + watchlist:
+        if sym not in all_stocks:
+            d = market_data.get(sym, {})
+            if d.get("price"):
+                all_stocks[sym] = {"price": d["price"],
+                                   "chg": d.get("chg") or d.get("change_pct") or 0,
+                                   "sector": _get_vault_sector(sym), "company": sym}
+
+    # Group by sector
+    sectors: dict = {}
+    for sym, info in all_stocks.items():
+        sec = info["sector"]
+        sectors.setdefault(sec, []).append((sym, info))
+
+    def _chg_color(chg: float) -> str:
+        if chg >= 3:   return "#1a6644"
+        if chg >= 1:   return "#26a69a"
+        if chg >= 0:   return "#2d8a6a"
+        if chg >= -1:  return "#8a2d2d"
+        if chg >= -3:  return "#ef5350"
+        return "#b71c1c"
+
+    # Sector summary pills
+    sector_pills = ""
+    for sec, stocks in sorted(sectors.items()):
+        if not stocks:
+            continue
+        avg_chg = sum(s[1]["chg"] for s in stocks) / len(stocks)
+        col = _chg_color(avg_chg)
+        sign = "+" if avg_chg >= 0 else ""
+        sector_pills += (f'<span style="background:{col};color:#fff;padding:3px 10px;'
+                         f'border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap">'
+                         f'{sec} {sign}{avg_chg:.2f}%</span> ')
+
+    # Build heatmap groups
+    heatmap_html = ""
+    for sec, stocks in sorted(sectors.items(), key=lambda x: -len(x[1])):
+        if not stocks:
+            continue
+        blocks = ""
+        for sym, info in sorted(stocks, key=lambda x: -abs(x[1]["chg"])):
+            chg = info["chg"]
+            col = _chg_color(chg)
+            sign = "+" if chg >= 0 else ""
+            blocks += (f'<a href="/chart/{sym}" style="text-decoration:none;display:block;background:{col};'
+                       f'border-radius:6px;padding:8px;min-width:60px;min-height:50px;text-align:center;'
+                       f'color:#fff;border:1px solid rgba(255,255,255,0.1);transition:filter .15s" '
+                       f'title="{info["company"]}: {sign}{chg:.2f}%" '
+                       f'onmouseover="this.style.filter=\'brightness(1.3)\'" '
+                       f'onmouseout="this.style.filter=\'\'">'
+                       f'<div style="font-size:12px;font-weight:800;line-height:1.2">{sym}</div>'
+                       f'<div style="font-size:10px;margin-top:2px">{sign}{chg:.2f}%</div></a>')
+        heatmap_html += (f'<div style="margin-bottom:16px">'
+                         f'<div style="font-size:11px;font-weight:700;text-transform:uppercase;'
+                         f'color:var(--mid);letter-spacing:.5px;margin-bottom:6px">{sec}</div>'
+                         f'<div style="display:flex;flex-wrap:wrap;gap:4px">{blocks}</div></div>')
+
+    html = f"""
+<div style="margin-bottom:12px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+    <span class="card-hdr" style="margin-bottom:0">🟩 Market Heatmap</span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">{sector_pills}</div>
+  <div style="font-size:11px;color:var(--muted)">คลิกที่หุ้นเพื่อดู chart · สีเขียว = บวก · สีแดง = ลบ</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#1a6644;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">+3%+</span> Strong</div>
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#26a69a;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">+1–3%</span> Bullish</div>
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#2d8a6a;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">0–1%</span> Mild+</div>
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#8a2d2d;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">0–1%↓</span> Mild-</div>
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#ef5350;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">1–3%↓</span> Bearish</div>
+  <div class="card-sm" style="padding:6px 10px"><span style="background:#b71c1c;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">3%+↓</span> Strong-</div>
+</div>
+<div class="card">
+  {heatmap_html or '<div style="color:var(--muted);padding:24px;text-align:center">ยังไม่มีข้อมูล — รอ market data refresh</div>'}
+</div>
+"""
+    return _base("heatmap", "Market Heatmap", html, user, _ticker_html(market_data), "")
+
+
+# ─── ANALYTICS PAGE ───────────────────────────────────────────────────────────
+
+def analytics_page(user: dict, market_data: dict, thb: float) -> str:
+    port = user.get("portfolio", {})
+
+    def _daily_rets(values: list) -> list:
+        if len(values) < 2:
+            return []
+        return [(values[i] - values[i-1]) / values[i-1] for i in range(1, len(values))]
+
+    # Gather portfolio stock data
+    port_data = []
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        closes = d.get("closes", [])
+        if not closes or not d.get("price"):
+            continue
+        port_data.append({
+            "sym": sym,
+            "shares": float(info.get("shares", 0)),
+            "cost": float(info.get("cost", 0)),
+            "price": d["price"],
+            "closes": closes,
+            "sector": _get_vault_sector(sym),
+        })
+
+    if not port_data:
+        msg = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:16px;color:var(--muted)">ยังไม่มี Portfolio — ไปตั้งค่าที่ Settings ก่อนนะ</div></div>'
+        return _base("analytics", "Portfolio Analytics", msg, user, "", "")
+
+    qqq_closes  = (market_data.get("QQQ")  or {}).get("closes", [])
+    sp500_closes = (market_data.get("IVV") or {}).get("closes", [])
+
+    min_days = min(len(pd["closes"]) for pd in port_data)
+    if qqq_closes:
+        min_days = min(min_days, len(qqq_closes))
+    min_days = min(min_days, 252)
+
+    if min_days < 20:
+        msg = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:16px;color:var(--muted)">ข้อมูลไม่เพียงพอ (ต้องการ &gt; 20 วัน)</div></div>'
+        return _base("analytics", "Portfolio Analytics", msg, user, "", "")
+
+    # Portfolio daily values
+    port_daily = []
+    for i in range(min_days):
+        idx = -(min_days - i)
+        val = sum(pd["shares"] * pd["closes"][idx] for pd in port_data if len(pd["closes"]) >= min_days)
+        port_daily.append(val)
+
+    port_rets   = _daily_rets(port_daily)
+    qqq_rets    = _daily_rets(qqq_closes[-min_days:]) if len(qqq_closes) >= min_days else []
+
+    total_cost = sum(pd["shares"] * pd["cost"] for pd in port_data)
+    total_val  = sum(pd["shares"] * pd["price"] for pd in port_data)
+    total_return = (total_val - total_cost) / total_cost * 100 if total_cost else 0
+
+    trading_days = len(port_daily)
+    ann_return = ((1 + total_return / 100) ** (252 / trading_days) - 1) * 100 if trading_days > 0 else 0
+
+    if len(port_rets) >= 5:
+        mean_r   = sum(port_rets) / len(port_rets)
+        variance = sum((r - mean_r) ** 2 for r in port_rets) / len(port_rets)
+        volatility = (variance ** 0.5) * (252 ** 0.5) * 100
+    else:
+        volatility = None
+
+    risk_free = 5.0
+    sharpe = (ann_return - risk_free) / volatility if volatility and volatility > 0 else None
+
+    # Max drawdown
+    peak = port_daily[0]; max_dd = 0.0
+    for v in port_daily:
+        if v > peak: peak = v
+        dd = (peak - v) / peak * 100 if peak > 0 else 0
+        if dd > max_dd: max_dd = dd
+
+    # Beta vs QQQ
+    beta = None
+    if len(port_rets) >= 5 and len(qqq_rets) >= 5:
+        min_l = min(len(port_rets), len(qqq_rets))
+        pr, qr = port_rets[-min_l:], qqq_rets[-min_l:]
+        mpr = sum(pr)/len(pr); mqr = sum(qr)/len(qr)
+        cov   = sum((pr[i]-mpr)*(qr[i]-mqr) for i in range(min_l)) / min_l
+        var_q = sum((r-mqr)**2 for r in qr) / len(qr)
+        beta = round(cov / var_q, 2) if var_q else None
+
+    win_rate = sum(1 for r in port_rets if r > 0) / len(port_rets) * 100 if port_rets else None
+
+    def fmt_stat(val, suffix="", decimals=1, show_sign=False):
+        if val is None: return "N/A"
+        s = "+" if (show_sign and val >= 0) else ""
+        return f"{s}{val:.{decimals}f}{suffix}"
+
+    # Chart data (last 180 days, normalized to 100)
+    chart_days = min(min_days, 180)
+    port_chart  = port_daily[-chart_days:]
+    qqq_chart   = qqq_closes[-chart_days:]  if len(qqq_closes)  >= chart_days else qqq_closes
+    sp500_chart = sp500_closes[-chart_days:] if len(sp500_closes) >= chart_days else sp500_closes
+
+    def normalize(values):
+        if not values or values[0] == 0: return [100.0] * len(values)
+        b = values[0]
+        return [round(v / b * 100, 2) for v in values]
+
+    port_norm  = normalize(port_chart)
+    qqq_norm   = normalize(qqq_chart)
+    sp500_norm = normalize(sp500_chart)
+    labels = [f"D{i+1}" for i in range(max(len(port_norm), len(qqq_norm)))]
+
+    # Monthly returns (~21 trading days per month)
+    monthly_labels, monthly_vals = [], []
+    if len(port_daily) >= 22:
+        for i in range(0, len(port_daily)-1, 21):
+            s = port_daily[i]; e = port_daily[min(i+21, len(port_daily)-1)]
+            monthly_vals.append(round((e-s)/s*100, 2) if s else 0)
+            monthly_labels.append(f"M{i//21+1}")
+    monthly_colors = ["rgba(38,166,154,0.7)" if v >= 0 else "rgba(239,83,80,0.7)" for v in monthly_vals]
+
+    # Per-stock tables
+    contrib_rows = ""
+    for pd_item in sorted(port_data, key=lambda x: -x["shares"]*x["price"]):
+        sym  = pd_item["sym"]
+        val  = pd_item["shares"] * pd_item["price"]
+        wt   = val / total_val * 100 if total_val else 0
+        sr   = (pd_item["price"] - pd_item["cost"]) / pd_item["cost"] * 100 if pd_item["cost"] else 0
+        spnl = (pd_item["price"] - pd_item["cost"]) * pd_item["shares"]
+        sc   = spnl / total_cost * 100 if total_cost else 0
+        rc   = "var(--green)" if sr >= 0 else "var(--red)"
+        cc2  = "var(--green)" if sc >= 0 else "var(--red)"
+        contrib_rows += f"""
+        <tr>
+          <td><b>{sym}</b></td>
+          <td>{wt:.1f}%</td>
+          <td style="color:{cc2}">{'+' if sc>=0 else ''}{sc:.2f}%</td>
+          <td style="color:{rc}">{'+' if sr>=0 else ''}{sr:.1f}%</td>
+        </tr>"""
+
+    risk_rows = ""
+    for pd_item in port_data:
+        sym    = pd_item["sym"]
+        cl     = pd_item["closes"]
+        if len(cl) < 20: continue
+        dr     = _daily_rets(cl[-252:] if len(cl) >= 252 else cl)
+        if not dr: continue
+        mdr    = sum(dr)/len(dr)
+        vol_s  = (sum((r-mdr)**2 for r in dr)/len(dr))**0.5 * (252**0.5) * 100
+        pk_s   = cl[0]; md_s = 0.0
+        for c in cl:
+            if c > pk_s: pk_s = c
+            dd_s = (pk_s-c)/pk_s*100 if pk_s else 0
+            if dd_s > md_s: md_s = dd_s
+        beta_s = None
+        if len(qqq_closes) >= len(dr):
+            qr_s  = _daily_rets(qqq_closes[-len(dr):])
+            if len(qr_s) == len(dr):
+                mn_dr = sum(dr)/len(dr); mn_qr = sum(qr_s)/len(qr_s)
+                cov_s = sum((dr[i]-mn_dr)*(qr_s[i]-mn_qr) for i in range(len(dr)))/len(dr)
+                vq_s  = sum((r-mn_qr)**2 for r in qr_s)/len(qr_s)
+                beta_s = round(cov_s/vq_s, 2) if vq_s else None
+        vc = "var(--red)" if vol_s > 30 else "var(--gold)" if vol_s > 20 else "var(--green)"
+        risk_rows += f"""
+        <tr>
+          <td><b>{sym}</b></td>
+          <td style="color:{vc}">{vol_s:.1f}%</td>
+          <td>{beta_s if beta_s is not None else 'N/A'}</td>
+          <td style="color:var(--red)">{md_s:.1f}%</td>
+        </tr>"""
+
+    # Sector exposure
+    sec_vals: dict = {}
+    for pd_item in port_data:
+        sec_vals[pd_item["sector"]] = sec_vals.get(pd_item["sector"], 0) + pd_item["shares"] * pd_item["price"]
+    sector_labels = list(sec_vals.keys())
+    sector_pcts   = [round(v / total_val * 100, 1) for v in sec_vals.values()]
+    PALETTE = ["rgba(45,212,191,.7)","rgba(41,98,255,.7)","rgba(156,39,176,.7)",
+               "rgba(240,180,41,.7)","rgba(38,166,154,.7)","rgba(255,107,53,.7)",
+               "rgba(239,83,80,.7)","rgba(33,150,243,.7)","rgba(76,175,80,.7)"]
+    sector_colors_js = [PALETTE[i % len(PALETTE)] for i in range(len(sector_labels))]
+
+    tr_col = "var(--green)" if total_return >= 0 else "var(--red)"
+    an_col = "var(--green)" if ann_return  >= 0 else "var(--red)"
+    sh_col = "var(--green)" if (sharpe or 0) >= 0 else "var(--red)"
+    vol_c  = "var(--red)" if (volatility or 0) > 30 else "var(--gold)" if (volatility or 0) > 20 else "var(--green)"
+    beta_d = ("Conservative" if beta is not None and beta < 0.8
+              else "Market-like" if beta is not None and beta < 1.2 else "Aggressive")
+
+    html = f"""
+<div class="g3" style="margin-bottom:16px">
+  <div class="stat-card" style="border-top:3px solid {tr_col}">
+    <div class="stat-label">Total Return</div>
+    <div class="stat-value" style="color:{tr_col}">{fmt_stat(total_return,'%',1,True)}</div>
+    <div class="stat-sub">Cost basis ${total_cost:,.0f}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid {an_col}">
+    <div class="stat-label">Annualized Return</div>
+    <div class="stat-value" style="color:{an_col}">{fmt_stat(ann_return,'%',1,True)}</div>
+    <div class="stat-sub">{trading_days} trading days</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid {vol_c}">
+    <div class="stat-label">Volatility (Ann.)</div>
+    <div class="stat-value" style="color:{vol_c}">{fmt_stat(volatility,'%')}</div>
+    <div class="stat-sub">σ daily returns × √252</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid {sh_col}">
+    <div class="stat-label">Sharpe Ratio</div>
+    <div class="stat-value" style="color:{sh_col}">{fmt_stat(sharpe,'',2)}</div>
+    <div class="stat-sub">Rf=5% · {'Good' if (sharpe or 0)>1 else 'Fair' if (sharpe or 0)>0 else 'Poor'}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid var(--red)">
+    <div class="stat-label">Max Drawdown</div>
+    <div class="stat-value" style="color:var(--red)">-{max_dd:.1f}%</div>
+    <div class="stat-sub">Peak-to-trough decline</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid var(--gold)">
+    <div class="stat-label">Beta vs QQQ</div>
+    <div class="stat-value">{fmt_stat(beta,'',2)}</div>
+    <div class="stat-sub">{beta_d}</div>
+  </div>
+</div>
+
+<div class="g2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">📈 Portfolio vs QQQ vs S&amp;P500 (normalized 100)</div>
+    <canvas id="perfChart" style="max-height:220px"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-hdr">📅 Monthly Returns</div>
+    <canvas id="monthlyChart" style="max-height:220px"></canvas>
+  </div>
+</div>
+
+<div class="g2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">💰 Stock Contribution to P&amp;L</div>
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>Weight</th><th>Contrib</th><th>Return</th></tr></thead>
+      <tbody>{contrib_rows or '<tr><td colspan="4" style="text-align:center;color:var(--muted)">—</td></tr>'}</tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-hdr">⚠️ Risk per Stock</div>
+    <table class="tbl">
+      <thead><tr><th>Symbol</th><th>Volatility</th><th>Beta</th><th>Max DD</th></tr></thead>
+      <tbody>{risk_rows or '<tr><td colspan="4" style="text-align:center;color:var(--muted)">ข้อมูลไม่เพียงพอ</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-hdr">🏭 Sector Exposure</div>
+  <canvas id="sectorChart" style="max-height:180px"></canvas>
+</div>
+"""
+
+    js = f"""
+const perfCtx = document.getElementById('perfChart').getContext('2d');
+new Chart(perfCtx, {{
+  type: 'line',
+  data: {{
+    labels: {json.dumps(labels[:max(len(port_norm),len(qqq_norm))])},
+    datasets: [
+      {{label:'Portfolio',data:{json.dumps(port_norm)},borderColor:'#2dd4bf',borderWidth:2,pointRadius:0,fill:false,tension:.2}},
+      {{label:'QQQ',data:{json.dumps(qqq_norm)},borderColor:'#f0b429',borderWidth:1.5,pointRadius:0,fill:false,tension:.2,borderDash:[4,2]}},
+      {{label:'S&P500',data:{json.dumps(sp500_norm)},borderColor:'#2962ff',borderWidth:1.5,pointRadius:0,fill:false,tension:.2,borderDash:[2,4]}}
+    ]
+  }},
+  options:{{responsive:true,maintainAspectRatio:true,
+    plugins:{{legend:{{labels:{{color:'#d1d4dc',font:{{size:11}}}}}},tooltip:{{mode:'index',intersect:false}}}},
+    scales:{{x:{{ticks:{{color:'#787b86',maxTicksLimit:8,font:{{size:10}}}},grid:{{color:'#2a2e39'}}}},
+             y:{{ticks:{{color:'#787b86',font:{{size:10}}}},grid:{{color:'#2a2e39'}},
+                title:{{display:true,text:'Normalized (100=start)',color:'#787b86',font:{{size:10}}}}}}}}
+  }}
+}});
+
+const moCtx = document.getElementById('monthlyChart').getContext('2d');
+new Chart(moCtx, {{
+  type: 'bar',
+  data: {{
+    labels: {json.dumps(monthly_labels)},
+    datasets: [{{label:'Monthly %',data:{json.dumps(monthly_vals)},backgroundColor:{json.dumps(monthly_colors)},borderRadius:4}}]
+  }},
+  options:{{responsive:true,maintainAspectRatio:true,
+    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:ctx=>ctx.raw.toFixed(2)+'%'}}}}}},
+    scales:{{x:{{ticks:{{color:'#787b86',font:{{size:10}}}},grid:{{color:'#2a2e39'}}}},
+             y:{{ticks:{{color:'#787b86',font:{{size:10}},callback:v=>v+'%'}},grid:{{color:'#2a2e39'}}}}}}
+  }}
+}});
+
+const secCtx = document.getElementById('sectorChart').getContext('2d');
+new Chart(secCtx, {{
+  type: 'bar',
+  data: {{
+    labels: {json.dumps(sector_labels)},
+    datasets: [{{label:'Weight %',data:{json.dumps(sector_pcts)},backgroundColor:{json.dumps(sector_colors_js)},borderRadius:4}}]
+  }},
+  options:{{indexAxis:'y',responsive:true,maintainAspectRatio:true,
+    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:ctx=>ctx.raw.toFixed(1)+'%'}}}}}},
+    scales:{{x:{{ticks:{{color:'#787b86',font:{{size:10}},callback:v=>v+'%'}},grid:{{color:'#2a2e39'}},max:100}},
+             y:{{ticks:{{color:'#787b86',font:{{size:10}}}},grid:{{color:'#2a2e39'}}}}}}
+  }}
+}});
+"""
+    return _base("analytics", "Portfolio Analytics", html, user, "", js)
+
+
+# ─── SCANNER PAGE ─────────────────────────────────────────────────────────────
+
+def _scan_stock(sym: str, d: dict) -> list:
+    """Run all technical scans on a stock. Returns list of signal dicts."""
+    signals = []
+    closes  = d.get("closes", [])
+    price   = d.get("price", 0)
+    high_52 = d.get("high", 0)
+    low_52  = d.get("low", 0)
+    if not closes or len(closes) < 15 or not price:
+        return signals
+
+    rsi   = _calc_rsi(closes)
+    ma20  = _ma(closes, 20)
+    ma50  = _ma(closes, 50)  if len(closes) >= 50  else None
+    ma200 = _ma(closes, 200) if len(closes) >= 200 else None
+
+    if rsi and rsi < 30:
+        signals.append({"type":"RSI","signal":"RSI Oversold","direction":"BUY","detail":f"RSI={rsi}"})
+    if rsi and rsi > 70:
+        signals.append({"type":"RSI","signal":"RSI Overbought","direction":"SELL","detail":f"RSI={rsi}"})
+
+    # MACD cross (last 3 days)
+    if len(closes) >= 40:
+        def _ema(data, n):
+            k = 2/(n+1); e = data[0]; r = [e]
+            for v in data[1:]: e = v*k + e*(1-k); r.append(e)
+            return r
+        fast_e = _ema(closes, 12); slow_e = _ema(closes, 26)
+        macd_l = [f-s for f,s in zip(fast_e, slow_e)]
+        sig_l  = _ema(macd_l, 9)
+        for i in range(-3, -1):
+            if abs(i) >= len(macd_l): continue
+            if macd_l[i-1] < sig_l[i-1] and macd_l[i] > sig_l[i]:
+                signals.append({"type":"MACD","signal":"MACD Bullish Cross","direction":"BUY","detail":f"MACD={macd_l[i]:.3f}"})
+                break
+            if macd_l[i-1] > sig_l[i-1] and macd_l[i] < sig_l[i]:
+                signals.append({"type":"MACD","signal":"MACD Bearish Cross","direction":"SELL","detail":f"MACD={macd_l[i]:.3f}"})
+                break
+
+    # BB Squeeze
+    if len(closes) >= 20 and price > 0:
+        sl   = closes[-20:]
+        mean = sum(sl)/20
+        std  = (sum((x-mean)**2 for x in sl)/20)**0.5
+        bw   = 4 * std
+        if bw / price < 0.05:
+            signals.append({"type":"Volatility","signal":"BB Squeeze","direction":"NEUTRAL","detail":f"Width {bw/price*100:.1f}% of price"})
+
+    if ma200 and price > ma200:
+        signals.append({"type":"MA","signal":"Price > MA200","direction":"BUY","detail":f"MA200=${ma200:,.0f}"})
+
+    # Golden / Death Cross (MA50 vs MA200 changed in last 30 days)
+    if ma50 and ma200 and len(closes) >= 230:
+        old_ma50  = _ma(closes[:-30], 50)  if len(closes)-30 >= 50  else None
+        old_ma200 = _ma(closes[:-30], 200) if len(closes)-30 >= 200 else None
+        if old_ma50 and old_ma200:
+            if old_ma50 < old_ma200 and ma50 > ma200:
+                signals.append({"type":"MA","signal":"Golden Cross","direction":"BUY","detail":"MA50 crossed above MA200"})
+            elif old_ma50 > old_ma200 and ma50 < ma200:
+                signals.append({"type":"MA","signal":"Death Cross","direction":"SELL","detail":"MA50 crossed below MA200"})
+
+    if high_52 and price > 0 and (high_52 - price) / high_52 < 0.05:
+        signals.append({"type":"MA","signal":"Near 52W High","direction":"NEUTRAL","detail":f"${price:,.2f} vs H${high_52:,.0f}"})
+    if low_52 and price > 0 and (price - low_52) / price < 0.05:
+        signals.append({"type":"RSI","signal":"Near 52W Low","direction":"BUY","detail":f"${price:,.2f} vs L${low_52:,.0f}"})
+
+    return signals
+
+
+def scanner_page(user: dict, market_data: dict) -> str:
+    port = user.get("portfolio", {})
+    scan_results = []
+    for sym, d in market_data.items():
+        if sym.startswith("_") or "=" in sym or "BTC" in sym:
+            continue
+        if not d.get("closes") or not d.get("price"):
+            continue
+        signals = _scan_stock(sym, d)
+        closes  = d.get("closes", [])
+        rsi     = _calc_rsi(closes) if len(closes) >= 15 else None
+        for sig in signals:
+            scan_results.append({
+                "sym": sym, "price": d["price"],
+                "chg": d.get("chg") or d.get("change_pct") or 0,
+                "rsi": rsi, "signal_type": sig["type"],
+                "signal": sig["signal"], "direction": sig["direction"],
+                "detail": sig["detail"], "in_port": sym in port,
+            })
+
+    dir_order = {"BUY": 0, "SELL": 1, "NEUTRAL": 2}
+    scan_results.sort(key=lambda x: (dir_order.get(x["direction"], 3), x["sym"]))
+
+    def row_html(r):
+        dc   = "var(--green)" if r["direction"]=="BUY" else "var(--red)" if r["direction"]=="SELL" else "var(--mid)"
+        chg  = r["chg"]
+        cc3  = "var(--green)" if chg >= 0 else "var(--red)"
+        sign = "+" if chg >= 0 else ""
+        pb   = ' <span style="font-size:9px;color:var(--teal);font-weight:700">PORT</span>' if r["in_port"] else ""
+        return (f'<tr class="scan-row" data-type="{r["signal_type"]}" data-dir="{r["direction"]}">'
+                f'<td><a href="/chart/{r["sym"]}" style="font-weight:800;color:var(--text);text-decoration:none">{r["sym"]}</a>{pb}</td>'
+                f'<td>${r["price"]:,.2f}</td>'
+                f'<td style="color:{cc3}">{sign}{chg:.2f}%</td>'
+                f'<td>{_rsi_bar(r["rsi"])}</td>'
+                f'<td style="color:{dc};font-weight:700">{r["signal"]}</td>'
+                f'<td style="color:{dc};font-weight:700;font-size:11px">{r["direction"]}</td>'
+                f'<td style="font-size:11px;color:var(--muted)">{r["detail"]}</td>'
+                f'<td><a href="/chart/{r["sym"]}" class="btn btn-ghost btn-sm">📉</a></td></tr>')
+
+    buy_count     = sum(1 for r in scan_results if r["direction"]=="BUY")
+    sell_count    = sum(1 for r in scan_results if r["direction"]=="SELL")
+    neutral_count = sum(1 for r in scan_results if r["direction"]=="NEUTRAL")
+    scanned_syms  = len(set(r["sym"] for r in scan_results))
+    all_rows      = "".join(row_html(r) for r in scan_results)
+
+    html = f"""
+<div class="g3" style="margin-bottom:16px">
+  <div class="stat-card" style="border-top:3px solid var(--green)">
+    <div class="stat-label">BUY Signals</div>
+    <div class="stat-value" style="color:var(--green)">{buy_count}</div>
+    <div class="stat-sub">Bullish conditions</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid var(--red)">
+    <div class="stat-label">SELL Signals</div>
+    <div class="stat-value" style="color:var(--red)">{sell_count}</div>
+    <div class="stat-sub">Bearish conditions</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">NEUTRAL / Watch</div>
+    <div class="stat-value" style="color:var(--mid)">{neutral_count}</div>
+    <div class="stat-sub">Monitor conditions</div>
+  </div>
+</div>
+
+<div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:8px">
+  <button class="tab active" onclick="filterScanner('all',this)">All ({len(scan_results)})</button>
+  <button class="tab" onclick="filterScanner('RSI',this)">RSI</button>
+  <button class="tab" onclick="filterScanner('MACD',this)">MACD</button>
+  <button class="tab" onclick="filterScanner('MA',this)">MA / Cross</button>
+  <button class="tab" onclick="filterScanner('Volatility',this)">Volatility</button>
+  <button class="tab" onclick="filterScanner('BUY',this)" style="margin-left:12px;color:var(--green)">BUY only</button>
+  <button class="tab" onclick="filterScanner('SELL',this)" style="color:var(--red)">SELL only</button>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="card-hdr" style="margin-bottom:0">🔍 Scanner — {scanned_syms} หุ้นที่สแกน</div>
+    <a href="/refresh" class="btn btn-ghost btn-sm">🔄 Refresh Data</a>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="tbl" id="scannerTable">
+      <thead><tr>
+        <th>Symbol</th><th>Price</th><th>Today</th><th>RSI</th><th>Signal</th><th>Direction</th><th>Detail</th><th></th>
+      </tr></thead>
+      <tbody id="scannerBody">{all_rows or '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีข้อมูล — รอ market data หรือกด Refresh</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+"""
+
+    js = """
+function filterScanner(type, btn) {
+  document.querySelectorAll('[onclick^="filterScanner"]').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const TYPE_FILTERS = ['RSI','MACD','MA','Volatility'];
+  const DIR_FILTERS  = ['BUY','SELL','NEUTRAL'];
+  document.querySelectorAll('#scannerBody .scan-row').forEach(tr => {
+    const t = tr.dataset.type, d = tr.dataset.dir;
+    let show = type === 'all';
+    if (!show && TYPE_FILTERS.includes(type)) show = t === type;
+    if (!show && DIR_FILTERS.includes(type))  show = d === type;
+    tr.style.display = show ? '' : 'none';
+  });
+}
+"""
+    return _base("scanner", "Technical Scanner", html, user, "", js)
 
 
 LOADING_PAGE = """<!DOCTYPE html>
