@@ -873,6 +873,114 @@ def ai_analyze():
         _ai_cache[uname] = {"text": text, "ts": datetime.now()}
     return redirect("/ai")
 
+@app.route("/chat")
+@login_required
+def chat():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    uname  = session["username"]
+    user   = get_user(uname)
+    # Chat history stored in Flask session (cleared on logout)
+    history = session.get("chat_history", [])
+    return dw.chat_page(user, mkt, thb, history)
+
+@app.route("/api/chat", methods=["POST"])
+@login_required
+def api_chat():
+    import dashboard_web as dw
+    import requests as req
+    uname   = session["username"]
+    user    = get_user(uname)
+    mkt, _, thb = _get_mkt()
+    message = (request.json or {}).get("message", "").strip()
+    if not message:
+        return jsonify({"reply": "ส่งข้อความมาด้วยครับ"})
+
+    history = session.get("chat_history", [])
+
+    # Build system prompt with live portfolio context
+    sys_prompt = dw._artheenoi_system_prompt(user, mkt, thb)
+
+    # Keep last 20 turns to limit token cost
+    recent = history[-20:]
+    messages = [{"role": m["role"], "content": m["content"]} for m in recent]
+    messages.append({"role": "user", "content": message})
+
+    reply = ""
+    if OPENROUTER_KEY:
+        try:
+            r = req.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
+                         "Content-Type": "application/json",
+                         "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
+                json={"model": "claude-haiku-4-5-20251001",
+                      "max_tokens": 700,
+                      "system": sys_prompt,
+                      "messages": messages},
+                timeout=25, verify=False
+            )
+            reply = r.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            log.warning(f"[Chat] OpenRouter error: {e}")
+            reply = "⚠️ เชื่อมต่อ AI ไม่ได้ตอนนี้ กรุณาลองใหม่"
+    else:
+        # Rule-based fallback เมื่อไม่มี key
+        reply = _rule_based_reply(message, user, mkt, thb)
+
+    # Save to session history
+    history.append({"role": "user",      "content": message})
+    history.append({"role": "assistant", "content": reply})
+    session["chat_history"] = history[-40:]  # keep 40 turns max
+    session.modified = True
+
+    return jsonify({"reply": reply})
+
+@app.route("/chat/clear", methods=["POST"])
+@login_required
+def chat_clear():
+    session.pop("chat_history", None)
+    return redirect("/chat")
+
+def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
+    """Simple rule-based chat fallback when no OpenRouter key."""
+    import dashboard_web as dw
+    msg_l = msg.lower()
+    port  = user.get("portfolio", {})
+
+    if any(w in msg_l for w in ["พอร์ต", "portfolio", "p&l", "กำไร", "ขาดทุน"]):
+        total_v = total_c = 0
+        lines = []
+        for sym, info in port.items():
+            d = mkt.get(sym, {})
+            if not d.get("price"): continue
+            v = d["price"] * float(info.get("shares", 0))
+            c = float(info.get("cost", 0)) * float(info.get("shares", 0))
+            pnl = v - c
+            total_v += v; total_c += c
+            lines.append(f"• {sym}: ${d['price']:,.2f} P&L {'+' if pnl>=0 else ''}${pnl:,.0f}")
+        pnl_t = total_v - total_c
+        s = f"รวม P&L: {'+' if pnl_t>=0 else ''}${pnl_t:,.0f} ({'+' if pnl_t>=0 else ''}{pnl_t/total_c*100:.1f}%)\n" if total_c else ""
+        return s + "\n".join(lines) if lines else "ยังไม่มี portfolio ครับ ไปตั้งที่ Settings ก่อนนะ"
+
+    if any(w in msg_l for w in ["ตลาด", "market", "qqq", "s&p", "nasdaq"]):
+        d = mkt.get("QQQ", {})
+        chg = d.get("chg", 0)
+        mood = "บวก 🟢" if chg > 0.5 else "ลบ 🔴" if chg < -0.5 else "ทรงตัว ⚪"
+        return f"ตลาดวันนี้{mood}\nQQQ: ${d.get('price',0):,.2f} ({chg:+.2f}%)\nIVV: ${mkt.get('IVV',{}).get('price',0):,.2f}"
+
+    if any(w in msg_l for w in ["ทอง", "gold", "xau"]):
+        d = mkt.get("GC=F", {})
+        closes = d.get("closes", [])
+        rsi = dw._calc_rsi(closes) if closes else None
+        return f"ทองคำ: ${d.get('price',0):,.2f} ({d.get('chg',0):+.2f}%)\nRSI: {rsi or '—'}\n{'โซนซื้อ ✅' if rsi and rsi<45 else 'รอ pullback ⚠️' if rsi and rsi>65 else 'Neutral'}"
+
+    if any(w in msg_l for w in ["btc", "bitcoin", "คริปโต", "crypto"]):
+        d = mkt.get("BTC-USD", {})
+        return f"BTC: ${d.get('price',0):,.0f} ({d.get('chg',0):+.2f}%)"
+
+    return "ตอนนี้ยังไม่ได้ตั้ง OpenRouter API Key ครับ\nไป Render → Environment → เพิ่ม OPENROUTER_API_KEY\nจะตอบได้ทุกอย่างเลยครับ 🤖"
+
 @app.route("/api/prices")
 @login_required
 def api_prices():

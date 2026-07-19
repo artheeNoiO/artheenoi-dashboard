@@ -152,6 +152,32 @@ canvas.spark{width:80px;height:32px;display:block}
 /* ── Loading ── */
 .spin{animation:spin 1s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Chat ── */
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 52px - 32px);overflow:hidden}
+.chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.chat-messages::-webkit-scrollbar{width:5px}
+.chat-messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.msg-row{display:flex;gap:10px;align-items:flex-end;max-width:85%}
+.msg-row.user{align-self:flex-end;flex-direction:row-reverse}
+.msg-row.ai{align-self:flex-start}
+.msg-avatar{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.msg-avatar.user-av{background:var(--card2);border:1px solid var(--border)}
+.msg-avatar.ai-av{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.bubble{padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.6;max-width:100%;word-wrap:break-word;white-space:pre-wrap}
+.bubble.user{background:var(--teal);color:#000;border-bottom-right-radius:4px}
+.bubble.ai{background:var(--card);border:1px solid var(--border);color:var(--text);border-bottom-left-radius:4px}
+.bubble.typing{color:var(--muted)}
+.chat-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;background:var(--sb)}
+.chat-input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:none;outline:none;max-height:120px;min-height:42px;transition:border .15s}
+.chat-input:focus{border-color:var(--teal)}
+.chat-input::placeholder{color:var(--muted)}
+.chat-send{width:42px;height:42px;border-radius:10px;background:var(--teal);border:none;cursor:pointer;font-size:18px;flex-shrink:0;transition:.15s;display:flex;align-items:center;justify-content:center}
+.chat-send:hover{filter:brightness(1.1)}
+.chat-send:disabled{opacity:.4;cursor:not-allowed}
+.chat-toolbar{display:flex;gap:6px;padding:6px 16px;background:var(--sb);border-bottom:1px solid var(--border)}
+.chip{font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.1s;white-space:nowrap}
+.chip:hover{border-color:var(--teal);color:var(--teal)}
 """
 
 # ─── Base Layout ──────────────────────────────────────────────────────────────
@@ -169,6 +195,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("news",    "📰", "News"),
         ("paper",   "🧪", "Paper Trade"),
         ("ai",      "🤖", "AI Analysis"),
+        ("chat",    "💬", "Chat ArtheeNoi"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -1594,6 +1621,230 @@ def ai_page(user: dict, market_data: dict, macro: dict, thb: float,
 </div>
 """
     return _base("ai", "AI Analysis", html, user, "", "")
+
+# ─── CHAT PAGE ───────────────────────────────────────────────────────────────
+
+def _artheenoi_system_prompt(user: dict, market_data: dict, thb: float) -> str:
+    port  = user.get("portfolio", {})
+    lines = []
+    for sym, info in port.items():
+        d = market_data.get(sym, {})
+        if not d.get("price"):
+            continue
+        cost = float(info.get("cost", 0))
+        sh   = float(info.get("shares", 0))
+        pnl  = (d["price"] - cost) / cost * 100 if cost else 0
+        closes = d.get("closes", [])
+        rsi    = _calc_rsi(closes) if len(closes) >= 15 else None
+        lines.append(f"  {sym}: price=${d['price']:,.2f}, RSI={rsi}, P&L={pnl:+.1f}%, shares={sh}@${cost}")
+
+    qqq  = market_data.get("QQQ", {})
+    gold = market_data.get("GC=F", {})
+    btc  = market_data.get("BTC-USD", {})
+    port_block = "\n".join(lines) or "  (ยังไม่มี portfolio)"
+
+    return f"""คุณคือ ArtheeNoi — AI ผู้ช่วยด้านการเงินและหุ้นส่วนตัว พัฒนาโดย Olarn
+ตอบภาษาไทยเสมอ สั้น กระชับ ตรงประเด็น ใช้ตัวเลขจริงจากข้อมูลที่มี
+
+ข้อมูลตลาดปัจจุบัน ({datetime.now().strftime('%Y-%m-%d %H:%M')}):
+  QQQ: ${qqq.get('price',0):,.2f} ({qqq.get('chg',0):+.2f}% today)
+  Gold: ${gold.get('price',0):,.2f} ({gold.get('chg',0):+.2f}%)
+  BTC: ${btc.get('price',0):,.0f} ({btc.get('chg',0):+.2f}%)
+  USD/THB: {thb:.2f}
+
+Portfolio ของ {user.get('display_name','User')}:
+{port_block}
+
+Watchlist: {', '.join(user.get('watchlist', []))}
+
+กฎ:
+- อ้างอิงตัวเลขจริงเสมอ ไม่เดาสุ่ม
+- ถ้าถามนอกขอบเขตการเงิน ตอบสั้นๆ ว่าไม่ถนัด
+- ไม่แนะนำให้ซื้อขายหุ้นใด 100% เสมอบอกว่า DYOR
+- ตอบเป็น bullet point ถ้าตอบยาว"""
+
+def chat_page(user: dict, market_data: dict, thb: float,
+              history: list = None) -> str:
+    history = history or []
+    has_key_class = "has-key" if market_data else ""
+
+    # Render existing messages
+    msgs_html = ""
+    for msg in history:
+        role = msg["role"]
+        text = msg["content"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if role == "user":
+            msgs_html += f"""
+            <div class="msg-row user">
+              <div class="msg-avatar user-av">👤</div>
+              <div class="bubble user">{text}</div>
+            </div>"""
+        else:
+            msgs_html += f"""
+            <div class="msg-row ai">
+              <div class="msg-avatar ai-av">A</div>
+              <div class="bubble ai">{text}</div>
+            </div>"""
+
+    # Quick chips
+    chips = [
+        "พอร์ตฉันเป็นยังไงบ้าง?",
+        "วันนี้ตลาดเป็นยังไง?",
+        "ทองควรซื้อไหม?",
+        "BTC สัญญาณอะไร?",
+        "หุ้นไหนน่าเพิ่ม?",
+        "ควร DCA ตัวไหน?",
+    ]
+    chips_html = "".join(f'<div class="chip" onclick="setMsg(this)">{c}</div>' for c in chips)
+
+    js = """
+const msgs   = document.getElementById('chatMsgs');
+const input  = document.getElementById('chatInput');
+const btn    = document.getElementById('sendBtn');
+
+function scrollBottom(){ msgs.scrollTop = msgs.scrollHeight; }
+scrollBottom();
+
+function setMsg(el){ input.value = el.textContent; input.focus(); }
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
+
+async function sendMsg() {
+  const txt = input.value.trim();
+  if (!txt || btn.disabled) return;
+
+  // Show user bubble
+  addBubble('user', txt);
+  input.value = '';
+  btn.disabled = true;
+
+  // Typing indicator
+  const typingId = 'typing_' + Date.now();
+  msgs.insertAdjacentHTML('beforeend', `
+    <div class="msg-row ai" id="${typingId}">
+      <div class="msg-avatar ai-av">A</div>
+      <div class="bubble ai typing">กำลังคิด<span class="spin">⟳</span></div>
+    </div>`);
+  scrollBottom();
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: txt})
+    });
+    const data = await res.json();
+    document.getElementById(typingId)?.remove();
+    addBubble('ai', data.reply || '⚠️ ไม่ได้รับคำตอบ');
+  } catch(e) {
+    document.getElementById(typingId)?.remove();
+    addBubble('ai', '⚠️ เกิดข้อผิดพลาด กรุณาลองใหม่');
+  }
+  btn.disabled = false;
+  input.focus();
+}
+
+function addBubble(role, text) {
+  const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const isUser  = role === 'user';
+  msgs.insertAdjacentHTML('beforeend', `
+    <div class="msg-row ${isUser?'user':'ai'}">
+      <div class="msg-avatar ${isUser?'user-av':'ai-av'}">${isUser?'👤':'A'}</div>
+      <div class="bubble ${isUser?'user':'ai'}">${escaped}</div>
+    </div>`);
+  scrollBottom();
+}
+"""
+
+    no_key_banner = "" if market_data else """
+    <div style="background:#f59e0b18;border:1px solid #f59e0b44;border-radius:8px;padding:10px 14px;
+                font-size:12px;color:#f59e0b;margin:12px 16px">
+      ⚠️ ยังไม่ได้ตั้ง OPENROUTER_API_KEY — ArtheeNoi จะใช้ rule-based mode (ไม่ใช่ AI จริง)
+    </div>"""
+
+    content = f"""
+<div class="chat-wrap">
+  <div class="chat-toolbar">{chips_html}</div>
+  {no_key_banner}
+  <div class="chat-messages" id="chatMsgs">
+    {'<div class="msg-row ai"><div class="msg-avatar ai-av">A</div><div class="bubble ai">สวัสดีครับ! ผม ArtheeNoi 👋<br>ถามเรื่องหุ้น ทอง คริปโต หรือพอร์ตของคุณได้เลยครับ</div></div>' if not msgs_html else ''}
+    {msgs_html}
+  </div>
+  <div class="chat-bar">
+    <textarea class="chat-input" id="chatInput" rows="1"
+      placeholder="ถามอะไรก็ได้เกี่ยวกับหุ้น ทอง คริปโต..."></textarea>
+    <button class="chat-send" id="sendBtn" onclick="sendMsg()">➤</button>
+  </div>
+</div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chat ArtheeNoi</title>
+<style>{_CSS}
+body{{overflow:hidden}}
+.main{{overflow:hidden}}
+.content{{padding:0;overflow:hidden}}
+</style>
+</head>
+<body>
+<div class="layout">
+  {_sidebar_html(user, "chat")}
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">💬 Chat กับ ArtheeNoi</div>
+      </div>
+      <div class="topbar-right">
+        <span class="live-dot"></span>
+        <span class="top-pill" id="mktTime">--:--</span>
+        <span class="top-user" onclick="location.href='/settings'">👤 {user.get('display_name','User')}</span>
+      </div>
+    </div>
+    <div class="main" style="overflow:hidden">
+      {content}
+    </div>
+  </div>
+</div>
+<script>
+function updateClock(){{const n=new Date();document.getElementById('mktTime').textContent=n.toLocaleTimeString('th-TH',{{hour:'2-digit',minute:'2-digit'}});}}
+setInterval(updateClock,1000);updateClock();
+{js}
+</script>
+</body></html>"""
+    return html
+
+def _sidebar_html(user: dict, active: str) -> str:
+    is_admin = user.get("role") == "admin"
+    nav = [
+        ("stocks",  "📊", "Stocks"),
+        ("gold",    "🥇", "Gold"),
+        ("crypto",  "₿",  "Crypto"),
+        ("dca",     "📈", "DCA"),
+        ("signals", "🎯", "Signals"),
+        ("news",    "📰", "News"),
+        ("paper",   "🧪", "Paper Trade"),
+        ("ai",      "🤖", "AI Analysis"),
+        ("chat",    "💬", "Chat ArtheeNoi"),
+    ]
+    nav_html = ""
+    for nid, icon, label in nav:
+        a = "active" if nid == active else ""
+        nav_html += (f'<a class="sb-link {a}" href="/{nid}">'
+                     f'{icon}<span class="tip">{label}</span></a>')
+    return f"""<nav class="sb">
+    <div class="sb-logo">A</div>
+    {nav_html}
+    <div class="sb-spacer"></div>
+    <div class="sb-bot">
+      <a class="sb-link" href="/settings">⚙️<span class="tip">Settings</span></a>
+      {'<a class="sb-link" href="/admin">👑<span class="tip">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout">🚪<span class="tip">Logout</span></a>
+    </div>
+  </nav>"""
 
 LOADING_PAGE = """<!DOCTYPE html>
 <html lang="th">
