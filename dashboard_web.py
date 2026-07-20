@@ -1191,18 +1191,58 @@ def gold_page(user: dict, market_data: dict) -> str:
     chg_col = "var(--green)" if chg >= 0 else "var(--red)"
     chg_s   = "+" if chg >= 0 else ""
 
-    src_badge = ""
+    src_lbl   = d.get("source", "metals.live")
     src_date  = d.get("date", "")
-    if d.get("source") == "frankfurter":
-        src_badge = f'<span style="font-size:10px;background:rgba(45,212,191,.15);color:var(--teal);border:1px solid rgba(45,212,191,.3);border-radius:8px;padding:1px 7px;margin-left:8px">Frankfurter {src_date}</span>'
+
+    # Thai gold (pre-loaded from cache — may be 0 if not yet fetched)
+    thai_bar_buy  = d.get("thai_bar_buy",  0)
+    thai_bar_sell = d.get("thai_bar_sell", 0)
+    thai_orna_buy = d.get("thai_orna_buy", 0)
+    thai_orna_sell= d.get("thai_orna_sell",0)
+
+    thai_section = ""
+    if thai_bar_sell:
+        thai_section = f"""
+<!-- Thai Gold Prices -->
+<div class="card" style="margin-bottom:16px;border-top:3px solid #FFD700">
+  <div class="card-hdr" style="display:flex;align-items:center;gap:8px">
+    🇹🇭 ราคาทองคำไทย
+    <span style="font-size:10px;background:rgba(255,215,0,.1);color:#FFD700;border:1px solid rgba(255,215,0,.3);border-radius:8px;padding:1px 7px" id="thaiGoldSrc">goldtraders.or.th</span>
+    <span style="font-size:10px;color:var(--muted)" id="thaiGoldDate">{d.get("thai_date","")}</span>
+  </div>
+  <div class="g4" style="margin-top:12px">
+    <div class="card-sm" style="text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ทองแท่ง ซื้อ</div>
+      <div style="font-size:20px;font-weight:800;color:var(--green)" id="thaiBarBuy">฿{thai_bar_buy:,.2f}</div>
+      <div style="font-size:10px;color:var(--muted)">บาทน้ำหนัก</div>
+    </div>
+    <div class="card-sm" style="text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ทองแท่ง ขาย</div>
+      <div style="font-size:20px;font-weight:800;color:var(--red)" id="thaiBarSell">฿{thai_bar_sell:,.2f}</div>
+      <div style="font-size:10px;color:var(--muted)">บาทน้ำหนัก</div>
+    </div>
+    <div class="card-sm" style="text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ทองรูปพรรณ ซื้อ</div>
+      <div style="font-size:20px;font-weight:800;color:var(--green)" id="thaiOrnasBuy">฿{thai_orna_buy:,.2f}</div>
+      <div style="font-size:10px;color:var(--muted)">บาทน้ำหนัก</div>
+    </div>
+    <div class="card-sm" style="text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">ทองรูปพรรณ ขาย</div>
+      <div style="font-size:20px;font-weight:800;color:var(--red)" id="thaiOrnasSell">฿{thai_orna_sell:,.2f}</div>
+      <div style="font-size:10px;color:var(--muted)">บาทน้ำหนัก</div>
+    </div>
+  </div>
+</div>"""
 
     html = f"""
 <!-- Gold live refresh bar -->
 <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-  <span style="font-size:12px;color:var(--muted)">แหล่งข้อมูล: <b style="color:var(--teal)">Frankfurter API</b> (XAU/USD daily spot) {src_badge}</span>
-  <button class="btn btn-primary btn-sm" onclick="refreshGold()">🔄 ดึงราคาล่าสุด</button>
+  <span style="font-size:12px;color:var(--muted)">แหล่งข้อมูล: <b style="color:var(--teal)">{src_lbl}</b> · <span id="goldSrcDate">{src_date}</span></span>
+  <button class="btn btn-primary btn-sm" onclick="refreshGold(this)">🔄 ดึงราคาล่าสุด</button>
   <span id="goldRefreshStatus" style="font-size:11px;color:var(--muted)"></span>
 </div>
+
+{thai_section}
 
 <!-- Gold Header -->
 <div class="g4" style="margin-bottom:16px">
@@ -1298,17 +1338,31 @@ def gold_page(user: dict, market_data: dict) -> str:
 </div>
 """
     gold_js = """
-function refreshGold(){
-  const btn=event.target;
+function refreshGold(btn){
+  if(!btn) btn=document.querySelector('[onclick^="refreshGold"]');
   btn.disabled=true;
   document.getElementById('goldRefreshStatus').textContent='⏳ กำลังดึงราคา…';
   fetch('/api/gold-spot').then(r=>r.json()).then(d=>{
-    if(!d.ok){document.getElementById('goldRefreshStatus').textContent='❌ '+(d.error||'Error');btn.disabled=false;return;}
-    const el=document.getElementById('goldPrice');
-    if(el) el.textContent='$'+d.price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    document.getElementById('goldRefreshStatus').textContent=
-      '✅ อัปเดต '+d.date+' · ราคา $'+d.price.toLocaleString()+' (฿'+d.price_thb.toLocaleString()+'/oz)';
     btn.disabled=false;
+    if(!d.ok){document.getElementById('goldRefreshStatus').textContent='❌ '+(d.error||'Error');return;}
+    // XAU/USD
+    const el=document.getElementById('goldPrice');
+    const fmt=(n,dec=2)=>n.toLocaleString('th-TH',{minimumFractionDigits:dec,maximumFractionDigits:dec});
+    if(el && d.price) el.textContent='$'+fmt(d.price);
+    const sd=document.getElementById('goldSrcDate');
+    if(sd) sd.textContent=d.date||'';
+    document.getElementById('goldRefreshStatus').textContent=
+      '✅ '+d.date+' · $'+fmt(d.price)+'/oz · ฿'+fmt(d.price_thb)+'/oz ['+d.source+']';
+    // Thai gold
+    if(d.thai_bar_sell){
+      const upd=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent='฿'+fmt(v,2);};
+      upd('thaiBarBuy',    d.thai_bar_buy);
+      upd('thaiBarSell',   d.thai_bar_sell);
+      upd('thaiOrnasBuy',  d.thai_orna_buy);
+      upd('thaiOrnasSell', d.thai_orna_sell);
+      const td=document.getElementById('thaiGoldDate');
+      if(td) td.textContent=d.thai_date||'';
+    }
   }).catch(e=>{document.getElementById('goldRefreshStatus').textContent='❌ '+e;btn.disabled=false;});
 }
 """

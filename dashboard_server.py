@@ -363,6 +363,59 @@ def _fetch_gold_live(thb: float = 34.0) -> dict:
     raise ValueError("ดึงราคาทองไม่ได้จากทุก source")
 
 
+def _fetch_gold_thai() -> dict:
+    """Thai gold price (THB/baht-weight) scraped from goldtraders.or.th"""
+    import re, urllib.request as _ur
+    try:
+        req = _ur.Request(
+            "https://www.goldtraders.or.th/",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+                "Accept-Language": "th,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+        )
+        with _ur.urlopen(req, timeout=8) as r:
+            html = r.read().decode("utf-8", errors="ignore")
+
+        # Extract all numbers in Thai gold price range (50,000 – 200,000)
+        nums = re.findall(r'([\d]{2,3},[\d]{3}(?:\.\d{2})?)', html)
+        prices = []
+        seen = set()
+        for n in nums:
+            v = float(n.replace(',', ''))
+            if 50000 <= v <= 200000 and v not in seen:
+                prices.append(v)
+                seen.add(v)
+
+        if len(prices) >= 4:
+            prices_sorted = sorted(prices)
+            bar_buy    = prices_sorted[0]
+            bar_sell   = prices_sorted[1]
+            orna_buy   = prices_sorted[2]
+            orna_sell  = prices_sorted[3]
+        elif len(prices) >= 2:
+            bar_buy  = prices[0]
+            bar_sell = prices[1]
+            orna_buy  = round(bar_buy  * 0.984, 2)
+            orna_sell = round(bar_sell * 1.005, 2)
+        else:
+            return {}
+
+        return {
+            "thai_bar_buy":    bar_buy,
+            "thai_bar_sell":   bar_sell,
+            "thai_orna_buy":   orna_buy,
+            "thai_orna_sell":  orna_sell,
+            "thai_source":     "goldtraders.or.th",
+            "thai_unit":       "THB/บาทน้ำหนัก",
+            "thai_date":       datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    except Exception as e:
+        log.warning(f"[GoldThai] {e}")
+        return {}
+
+
 def _record_portfolio_snapshots(mkt: dict, thb: float):
     """Append daily portfolio value snapshot for every user (once per day)."""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -2354,11 +2407,12 @@ def insider():
 @app.route("/api/gold-spot")
 @login_required
 def api_gold_spot():
-    """Real-time XAU/USD — metals.live then yfinance 5-min fallback."""
+    """Real-time gold — XAU/USD (metals.live/yfinance) + Thai prices (goldtraders.or.th)."""
     try:
         _, _, thb = _get_mkt()
         data = _fetch_gold_live(thb or 34.0)
-        return jsonify({"ok": True, **data})
+        thai = _fetch_gold_thai()
+        return jsonify({"ok": True, **data, **thai})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
