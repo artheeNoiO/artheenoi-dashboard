@@ -293,13 +293,13 @@ def _do_market_refresh():
         except Exception as e:
             log.warning(f"[Vault] {e}")
 
-        # Override GC=F with Frankfurter XAU/USD (more accurate than yfinance delayed)
+        # Override GC=F with live gold price (metals.live → yfinance fallback)
         try:
-            gold_data = _fetch_gold_frankfurter(thb)
+            gold_data = _fetch_gold_live(thb)
             if gold_data:
                 mkt["GC=F"] = {**mkt.get("GC=F", {}), **gold_data}
         except Exception as e:
-            log.warning(f"[Gold] Frankfurter: {e}")
+            log.warning(f"[Gold] live fetch: {e}")
 
         with _mkt_lock:
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
@@ -317,24 +317,50 @@ def _do_market_refresh():
     finally:
         _refreshing.clear()
 
-def _fetch_gold_frankfurter(thb: float = 34.0) -> dict:
-    """Fetch XAU/USD spot price from Frankfurter API (free, daily rate)."""
-    import urllib.request as _ur
-    url = "https://api.frankfurter.app/latest?from=XAU&to=USD"
-    req = _ur.Request(url, headers={"User-Agent": "ArtheeNoi/1.0"})
-    with _ur.urlopen(req, timeout=6) as r:
-        data = json.loads(r.read())
-    usd_per_oz = float(data["rates"]["USD"])
-    thb_per_oz = round(usd_per_oz * thb, 2)
-    date_str   = data.get("date", "")
-    return {
-        "price":      round(usd_per_oz, 2),
-        "price_thb":  thb_per_oz,
-        "source":     "frankfurter",
-        "date":       date_str,
-        "symbol":     "XAU/USD",
-        "unit":       "troy oz",
-    }
+def _fetch_gold_live(thb: float = 34.0) -> dict:
+    """Fetch XAU/USD live price — tries metals.live then yfinance intraday."""
+    # --- try 1: metals.live (free, no key, real-time spot) ---
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(
+            "https://metals.live/api/spot",
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+        )
+        with _ur.urlopen(req, timeout=6) as r:
+            raw = json.loads(r.read())
+        item = raw[0] if isinstance(raw, list) else raw
+        gold_usd = float(item.get("gold") or item.get("XAU") or 0)
+        if gold_usd > 100:
+            return {
+                "price":     round(gold_usd, 2),
+                "price_thb": round(gold_usd * thb, 2),
+                "source":    "metals.live",
+                "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "symbol":    "XAU/USD",
+                "unit":      "troy oz",
+            }
+    except Exception:
+        pass
+
+    # --- try 2: yfinance 5-min intraday (more current than daily close) ---
+    import yfinance as yf
+    h = yf.download("GC=F", period="1d", interval="5m",
+                    progress=False, auto_adjust=True)
+    if not h.empty and "Close" in h.columns:
+        closes = h["Close"].squeeze()
+        price  = float(closes.iloc[-1])
+        prev   = float(closes.iloc[0])
+        chg    = (price - prev) / prev * 100 if prev else 0
+        return {
+            "price":     round(price, 2),
+            "price_thb": round(price * thb, 2),
+            "chg":       round(chg, 2),
+            "source":    "yfinance-5m",
+            "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "symbol":    "GC=F",
+            "unit":      "troy oz",
+        }
+    raise ValueError("ดึงราคาทองไม่ได้จากทุก source")
 
 
 def _record_portfolio_snapshots(mkt: dict, thb: float):
@@ -2328,10 +2354,10 @@ def insider():
 @app.route("/api/gold-spot")
 @login_required
 def api_gold_spot():
-    """Real-time XAU/USD from Frankfurter (daily rate, no API key needed)."""
+    """Real-time XAU/USD — metals.live then yfinance 5-min fallback."""
     try:
         _, _, thb = _get_mkt()
-        data = _fetch_gold_frankfurter(thb or 34.0)
+        data = _fetch_gold_live(thb or 34.0)
         return jsonify({"ok": True, **data})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
