@@ -918,21 +918,21 @@ input::placeholder{color:var(--muted)}
     </form>
   </div>
 
-  <!-- BYOK: OpenRouter Key -->
+  <!-- BYOK: AI Key -->
   <div class="card">
-    <h2>OpenRouter API Key</h2>
+    <h2>AI API Key</h2>
     <p style="font-size:12px;color:#64748b;margin-bottom:14px">
       ใส่ key ตัวเองเพื่อให้ ArtheeNoi ฉลาดขึ้น (Chat + AI Analysis จะใช้ key ของคุณ)<br>
-      ถ้าไม่ใส่ → ใช้ system key (อาจถูกจำกัดการใช้งาน) &nbsp;|&nbsp;
-      <a href="https://openrouter.ai/keys" target="_blank" style="color:#d97757">สมัคร OpenRouter ฟรี →</a>
+      รองรับ 2 แบบ: <b style="color:#e2e8f0">Claude (Anthropic)</b> sk-ant-... &nbsp;|&nbsp;
+      <b style="color:#e2e8f0">OpenRouter</b> sk-or-...
     </p>
     <form method="POST" action="/settings/api-key">
       <div style="display:flex;gap:8px;align-items:center">
         <input type="password" name="openrouter_key"
                value="{{ openrouter_key }}"
-               placeholder="sk-or-v1-..."
+               placeholder="sk-ant-... หรือ sk-or-v1-..."
                style="flex:1;background:#111d2e;border:1px solid #243040;border-radius:8px;color:#e2e8f0;font-size:13px;padding:10px 14px">
-        <button type="submit" class="btn btn-primary">💾 บันทึก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
       </div>
     </form>
   </div>
@@ -1569,7 +1569,7 @@ def _rule_based_reply(msg: str, user: dict, mkt: dict, thb: float) -> str:
         d = mkt.get("BTC-USD", {})
         return f"BTC: ${d.get('price',0):,.0f} ({d.get('chg',0):+.2f}%)"
 
-    return "ตอนนี้ยังไม่ได้ตั้ง OpenRouter API Key ครับ\nไป Render → Environment → เพิ่ม OPENROUTER_API_KEY\nจะตอบได้ทุกอย่างเลยครับ 🤖"
+    return "ยังไม่มี API Key ครับ — ไปที่ Settings → ใส่ Claude API Key (sk-ant-...) หรือ OpenRouter Key (sk-or-...) แล้วผมจะตอบได้ทุกอย่างเลย 🤖"
 
 @app.route("/api/alerts")
 @login_required
