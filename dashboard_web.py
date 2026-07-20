@@ -389,7 +389,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
-    nav = [("home", "", "Home")] + [(nid, ic, lb) for nid, ic, lb in nav if nid != "settings"]
+    nav = [(nid, ic, lb) for nid, ic, lb in nav if nid not in ("settings", "home")]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
     bn_screen  = "active" if page_id == "screener" else ""
@@ -422,9 +422,9 @@ def _base(page_id: str, title: str, content: str, user: dict,
 <div class="layout">
   <!-- Sidebar -->
   <nav class="sb" id="sidebar">
-    <div class="sb-logo">
+    <a href="/home" class="sb-logo" style="text-decoration:none">
       <span class="sb-logo-text">ArtheeNoi</span>
-    </div>
+    </a>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
@@ -3446,15 +3446,15 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
-    nav = [("home", "", "Home")] + [(nid, ic, lb) for nid, ic, lb in nav if nid != "settings"]
+    nav = [(nid, ic, lb) for nid, ic, lb in nav if nid not in ("settings", "home")]
     nav_html = ""
     for nid, icon, label in nav:
         a = "active" if nid == active else ""
         nav_html += f'<a class="sb-link {a}" href="/{nid}"><span class="sb-label">{label}</span></a>\n'
     return f"""<nav class="sb">
-    <div class="sb-logo">
+    <a href="/home" class="sb-logo" style="text-decoration:none">
       <span class="sb-logo-text">ArtheeNoi</span>
-    </div>
+    </a>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
