@@ -3462,6 +3462,13 @@ def status():
         "last_updated": upd.isoformat() if upd else None,
     })
 
+@app.errorhandler(500)
+def err500(e):
+    import traceback
+    tb = traceback.format_exc()
+    log.error(f"[500] {tb}")
+    return f"<pre style='background:#111;color:#f87;padding:20px;font-size:12px;white-space:pre-wrap'><b>500 — {e}</b>\n\n{tb}</pre>", 500
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
