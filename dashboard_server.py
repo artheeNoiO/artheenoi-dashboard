@@ -330,70 +330,65 @@ def _do_market_refresh():
         _refreshing.clear()
 
 def _fetch_gold_live(thb: float = 34.0) -> dict:
-    """Fetch XAU/USD live price — tries metals.live then yfinance intraday."""
-    # --- try 1: metals.live (free, no key, real-time spot) ---
+    """Fetch XAU/USD live price — Yahoo Finance unofficial API → yfinance fast_info → cache."""
+    # --- try 1: Yahoo Finance v8 chart API (fast, no key, ~15min delay) ---
     try:
         import urllib.request as _ur
-        req = _ur.Request(
-            "https://metals.live/api/spot",
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-        )
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1m&range=1d"
+        req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with _ur.urlopen(req, timeout=6) as r:
-            raw = json.loads(r.read())
-        item = raw[0] if isinstance(raw, list) else raw
-        gold_usd = float(item.get("gold") or item.get("XAU") or 0)
-        if gold_usd > 100:
-            return {
-                "price":     round(gold_usd, 2),
-                "price_thb": round(gold_usd * thb, 2),
-                "source":    "metals.live",
-                "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "symbol":    "XAU/USD",
-                "unit":      "troy oz",
-            }
-    except Exception:
-        pass
-
-    # --- try 2: yfinance 5-min intraday fallback ---
-    try:
-        import yfinance as yf
-        h = yf.download("GC=F", period="1d", interval="5m",
-                        progress=False, auto_adjust=True)
-        if not h.empty and "Close" in h.columns:
-            col = h["Close"]
-            # yfinance may return MultiIndex columns — flatten
-            if hasattr(col.columns if hasattr(col, 'columns') else col, '__len__'):
-                try:
-                    col = col.iloc[:, 0] if hasattr(col, 'columns') else col
-                except Exception:
-                    pass
-            closes_s = col.squeeze()
-            price = float(closes_s.iloc[-1])
-            prev  = float(closes_s.iloc[0])
-            chg   = (price - prev) / prev * 100 if prev else 0
+            data = json.loads(r.read())
+        res  = data["chart"]["result"][0]
+        meta = res["meta"]
+        price = float(meta.get("regularMarketPrice") or meta.get("previousClose") or 0)
+        prev  = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
+        chg   = (price - prev) / prev * 100 if prev else 0
+        if price > 100:
             return {
                 "price":     round(price, 2),
                 "price_thb": round(price * thb, 2),
                 "chg":       round(chg, 2),
-                "source":    "yfinance-5m",
-                "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "source":    "Yahoo Finance",
+                "date":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "symbol":    "GC=F",
                 "unit":      "troy oz",
             }
     except Exception:
         pass
 
-    # --- try 3: pull from existing market cache (GC=F daily) ---
+    # --- try 2: yfinance Ticker.fast_info (lightweight, no download) ---
     try:
-        with _mkt_lock:
-            cached = _mkt_cache.get("data", {}).get("GC=F", {})
-        if cached.get("price", 0) > 100:
-            return {**cached, "source": "cache", "date": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        import yfinance as yf
+        t  = yf.Ticker("GC=F")
+        fi = t.fast_info
+        price = float(fi.last_price or 0)
+        prev  = float(fi.previous_close or price)
+        chg   = (price - prev) / prev * 100 if prev else 0
+        if price > 100:
+            return {
+                "price":     round(price, 2),
+                "price_thb": round(price * thb, 2),
+                "chg":       round(chg, 2),
+                "source":    "yfinance",
+                "date":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "symbol":    "GC=F",
+                "unit":      "troy oz",
+            }
     except Exception:
         pass
 
-    return {"price": 0, "price_thb": 0, "source": "unavailable",
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M"), "symbol": "GC=F", "unit": "troy oz"}
+    # --- try 3: return from existing market cache ---
+    try:
+        with _mkt_lock:
+            cached = dict(_mkt_cache.get("data", {}).get("GC=F", {}))
+        if cached.get("price", 0) > 100:
+            return {**cached, "source": "cache",
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    except Exception:
+        pass
+
+    return {"price": 0, "price_thb": 0, "chg": 0, "source": "unavailable",
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "symbol": "GC=F"}
 
 
 def _fetch_gold_thai() -> dict:
