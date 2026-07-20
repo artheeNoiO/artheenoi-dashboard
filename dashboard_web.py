@@ -389,6 +389,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
+    nav = [("home", "", "Home")] + [(nid, ic, lb) for nid, ic, lb in nav if nid != "settings"]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
     bn_screen  = "active" if page_id == "screener" else ""
@@ -3445,6 +3446,7 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
+    nav = [("home", "", "Home")] + [(nid, ic, lb) for nid, ic, lb in nav if nid != "settings"]
     nav_html = ""
     for nid, icon, label in nav:
         a = "active" if nid == active else ""

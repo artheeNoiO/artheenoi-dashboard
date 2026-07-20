@@ -748,47 +748,55 @@ _SETTINGS_TPL = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings — ArtheeNoi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#090d16;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:24px}
-.wrap{max-width:700px;margin:0 auto}
-h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.sub{color:#64748b;font-size:13px;margin-bottom:28px}
-.card{background:#0f1623;border:1px solid #1c2a3a;border-radius:12px;padding:24px;margin-bottom:20px}
-h2{font-size:14px;font-weight:700;color:#d97757;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px}
+:root{--bg:#080808;--bg2:#111111;--bg3:#1a1a1a;--border:#2a2a2a;--text:#f0f0f0;--mid:#888;--muted:#555}
+body{min-height:100vh;background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',system-ui,sans-serif;padding:32px 24px}
+*::-webkit-scrollbar{width:5px;height:5px}
+*::-webkit-scrollbar-track{background:#0d0d0d}
+*::-webkit-scrollbar-thumb{background:#2e2e2e;border-radius:2px}
+.wrap{max-width:720px;margin:0 auto}
+h1{font-size:22px;font-weight:900;letter-spacing:-0.5px;margin-bottom:4px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:28px;letter-spacing:.3px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:24px;margin-bottom:16px}
+h2{font-size:10px;font-weight:700;color:var(--muted);margin-bottom:16px;text-transform:uppercase;letter-spacing:2px}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;padding:0 8px 8px}
+th{text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:0 8px 10px}
 td{padding:6px 8px;vertical-align:middle}
-input[type=text],input[type=number]{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8f0;font-size:13px;padding:6px 10px;width:100%}
-input:focus{border-color:#d97757;outline:none}
-.btn{padding:8px 18px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer}
-.btn-primary{background:#d97757;color:#fff}.btn-primary:hover{background:#c96040}
-.btn-danger{background:#ef444422;color:#ef4444;border:1px solid #ef444466}.btn-danger:hover{background:#ef444444}
-.btn-add{background:#10b98122;color:#10b981;border:1px solid #10b98166;margin-top:8px}.btn-add:hover{background:#10b98133}
-.nav{display:flex;gap:12px;margin-bottom:24px}
-.nav a{color:#64748b;text-decoration:none;font-size:13px}.nav a:hover{color:#e2e8f0}
-.msg{padding:10px 14px;border-radius:7px;font-size:13px;margin-bottom:16px}
-.msg.ok{background:#10b98122;border:1px solid #10b98166;color:#10b981}
-.msg.err{background:#ef444422;border:1px solid #ef444466;color:#ef4444}
-.wl-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.wl-tag{background:#111d2e;border:1px solid #243040;border-radius:6px;padding:5px 10px;font-size:12px;display:flex;align-items:center;gap:8px}
-.wl-tag button{background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;padding:0}
+input[type=text],input[type=number],input[type=password],input[type=file]{background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:13px;padding:7px 10px;width:100%;font-family:inherit;outline:none;transition:.12s}
+input:focus{border-color:#666}
+input::placeholder{color:var(--muted)}
+.btn{padding:8px 18px;border:none;border-radius:3px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-family:inherit;transition:.12s}
+.btn-primary{background:var(--text);color:var(--bg)}.btn-primary:hover{background:#fff}
+.btn-danger{background:transparent;color:#ef5350;border:1px solid #ef535044}.btn-danger:hover{background:#ef535011}
+.btn-add{background:transparent;color:var(--mid);border:1px solid var(--border);margin-top:8px}.btn-add:hover{color:var(--text);border-color:#666}
+.btn-secondary{background:var(--bg3);color:var(--mid);border:1px solid var(--border)}.btn-secondary:hover{color:var(--text)}
+.nav{display:flex;gap:20px;margin-bottom:28px;border-bottom:1px solid var(--border);padding-bottom:16px}
+.nav a{color:var(--muted);text-decoration:none;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px}.nav a:hover{color:var(--text)}
+.msg{padding:10px 14px;border-radius:3px;font-size:12px;margin-bottom:16px}
+.msg.ok{background:#4caf5011;border:1px solid #4caf5044;color:#4caf50}
+.msg.err{background:#ef535011;border:1px solid #ef535044;color:#ef5350}
+.wl-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.wl-tag{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:5px 10px;font-size:11px;font-weight:600;letter-spacing:.5px;display:flex;align-items:center;gap:8px;text-transform:uppercase}
+.wl-tag button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1}.wl-tag button:hover{color:#ef5350}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="nav">
-    <a href="/stocks">← Dashboard</a>
+    <a href="/home">← Dashboard</a>
     <a href="/logout">Logout</a>
-    {% if is_admin %}<a href="/admin">👑 Admin</a>{% endif %}
+    {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
   </div>
-  <h1>⚙️ Settings</h1>
-  <p class="sub">ตั้งค่า portfolio และ watchlist ของ {{ display_name }}</p>
+  <h1>Settings</h1>
+  <p class="sub">{{ display_name }}</p>
   {% if msg %}<div class="msg {{ msg_type }}">{{ msg }}</div>{% endif %}
 
   <!-- Portfolio -->
   <div class="card">
-    <h2>📊 Portfolio ของฉัน</h2>
+    <h2>Portfolio</h2>
     <form method="POST" action="/settings/portfolio">
       <table>
         <thead><tr><th>Symbol</th><th>จำนวนหุ้น</th><th>ต้นทุน/หุ้น (USD)</th><th></th></tr></thead>
@@ -812,7 +820,7 @@ input:focus{border-color:#d97757;outline:none}
 
   <!-- Watchlist -->
   <div class="card">
-    <h2>👀 Watchlist</h2>
+    <h2>Watchlist</h2>
     <form method="POST" action="/settings/watchlist">
       <div class="wl-wrap" id="wlWrap">
         {% for sym in watchlist %}
@@ -833,7 +841,7 @@ input:focus{border-color:#d97757;outline:none}
 
   <!-- BYOK: OpenRouter Key -->
   <div class="card">
-    <h2>🤖 OpenRouter API Key (ของตัวเอง)</h2>
+    <h2>OpenRouter API Key</h2>
     <p style="font-size:12px;color:#64748b;margin-bottom:14px">
       ใส่ key ตัวเองเพื่อให้ ArtheeNoi ฉลาดขึ้น (Chat + AI Analysis จะใช้ key ของคุณ)<br>
       ถ้าไม่ใส่ → ใช้ system key (อาจถูกจำกัดการใช้งาน) &nbsp;|&nbsp;
@@ -852,7 +860,7 @@ input:focus{border-color:#d97757;outline:none}
 
   <!-- CSV Import / Export -->
   <div class="card">
-    <h2>📥 Import / Export Portfolio (CSV)</h2>
+    <h2>Import / Export CSV</h2>
     <p style="font-size:12px;color:#64748b;margin-bottom:14px">
       รูปแบบ CSV: <code style="background:#111d2e;padding:2px 6px;border-radius:4px">Symbol,Shares,Cost</code> (ต้องมี header row)<br>
       ตัวอย่าง: <code style="background:#111d2e;padding:2px 6px;border-radius:4px">NVDA,2,850.00</code>
@@ -866,7 +874,7 @@ input:focus{border-color:#d97757;outline:none}
 
   <!-- Change Password -->
   <div class="card">
-    <h2>🔒 เปลี่ยน Password</h2>
+    <h2>Change Password</h2>
     <form method="POST" action="/settings/password">
       <table><tbody>
         <tr>
