@@ -583,32 +583,41 @@ _LOGIN_TPL = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ArtheeNoi — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100vh;background:#090d16;display:flex;align-items:center;justify-content:center;font-family:'Segoe UI',system-ui,sans-serif}
-.card{background:#0f1623;border:1px solid #1c2a3a;border-radius:16px;padding:44px 36px;width:340px}
-.logo{text-align:center;font-size:36px;margin-bottom:10px}
-h1{text-align:center;color:#e2e8f0;font-size:20px;font-weight:700;margin-bottom:4px}
-.sub{text-align:center;color:#64748b;font-size:12px;margin-bottom:28px}
-label{display:block;color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 6px}
-input{width:100%;padding:10px 14px;background:#111d2e;border:1px solid #243040;border-radius:8px;color:#e2e8f0;font-size:14px;outline:none;transition:border .2s}
-input:focus{border-color:#d97757}
-button{width:100%;margin-top:24px;padding:12px;background:#d97757;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:.2s}
-button:hover{background:#c96040}
-.err{background:#ef444422;border:1px solid #ef444466;border-radius:6px;color:#ef4444;font-size:12px;text-align:center;padding:8px;margin-top:14px}
+body{min-height:100vh;background:#080808;display:flex;font-family:'Inter','Segoe UI',system-ui,sans-serif;overflow:hidden}
+.left{flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding:48px;position:relative;border-right:1px solid #1a1a1a}
+.left-big{font-size:clamp(56px,8vw,110px);font-weight:900;line-height:.9;color:#f0f0f0;letter-spacing:-3px;margin-bottom:20px;text-transform:uppercase}
+.left-sub{font-size:13px;color:#555;letter-spacing:1.5px;text-transform:uppercase;font-weight:600}
+.left-tag{position:absolute;top:48px;left:48px;font-size:11px;color:#333;letter-spacing:2px;text-transform:uppercase;font-weight:700}
+.right{width:380px;display:flex;flex-direction:column;justify-content:center;padding:48px 44px;background:#080808}
+.form-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#444;margin-bottom:40px}
+label{display:block;color:#555;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;margin:24px 0 8px}
+input{width:100%;padding:12px 0;background:transparent;border:none;border-bottom:1px solid #2a2a2a;color:#f0f0f0;font-size:15px;outline:none;transition:.2s;font-family:inherit}
+input:focus{border-bottom-color:#f0f0f0}
+input::placeholder{color:#333}
+button{width:100%;margin-top:40px;padding:14px;background:#f0f0f0;border:none;color:#080808;font-size:13px;font-weight:800;cursor:pointer;transition:.2s;letter-spacing:1px;text-transform:uppercase;font-family:inherit}
+button:hover{background:#ffffff}
+.err{color:#ef5350;font-size:11px;text-align:center;padding:12px 0;margin-top:8px;letter-spacing:.5px}
+@media(max-width:640px){.left{display:none}.right{width:100%;padding:40px 28px}}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">📈</div>
-  <h1>ArtheeNoi Dashboard</h1>
-  <p class="sub">ระบบวิเคราะห์หุ้น — สำหรับเพื่อน</p>
+<div class="left">
+  <div class="left-tag">ArtheeNoi · Dashboard</div>
+  <div class="left-big">ARTHEE<br>NOI</div>
+  <div class="left-sub">ระบบวิเคราะห์หุ้น · สำหรับเพื่อน</div>
+</div>
+<div class="right">
+  <div class="form-title">Sign in to continue</div>
   <form method="POST">
     <label>Username</label>
-    <input name="username" type="text" autocomplete="username" placeholder="ใส่ username" required>
+    <input name="username" type="text" autocomplete="username" placeholder="username" required>
     <label>Password</label>
-    <input name="password" type="password" autocomplete="current-password" placeholder="ใส่ password" required>
-    <button type="submit">เข้าสู่ระบบ →</button>
+    <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+    <button type="submit">Enter →</button>
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
   </form>
 </div>
