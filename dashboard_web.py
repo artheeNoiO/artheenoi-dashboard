@@ -1191,13 +1191,25 @@ def gold_page(user: dict, market_data: dict) -> str:
     chg_col = "var(--green)" if chg >= 0 else "var(--red)"
     chg_s   = "+" if chg >= 0 else ""
 
+    src_badge = ""
+    src_date  = d.get("date", "")
+    if d.get("source") == "frankfurter":
+        src_badge = f'<span style="font-size:10px;background:rgba(45,212,191,.15);color:var(--teal);border:1px solid rgba(45,212,191,.3);border-radius:8px;padding:1px 7px;margin-left:8px">Frankfurter {src_date}</span>'
+
     html = f"""
+<!-- Gold live refresh bar -->
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+  <span style="font-size:12px;color:var(--muted)">แหล่งข้อมูล: <b style="color:var(--teal)">Frankfurter API</b> (XAU/USD daily spot) {src_badge}</span>
+  <button class="btn btn-primary btn-sm" onclick="refreshGold()">🔄 ดึงราคาล่าสุด</button>
+  <span id="goldRefreshStatus" style="font-size:11px;color:var(--muted)"></span>
+</div>
+
 <!-- Gold Header -->
 <div class="g4" style="margin-bottom:16px">
   <div class="card-sm" style="border-top:3px solid var(--gold)">
     <div class="card-hdr">Gold (XAU/USD)</div>
-    <div class="stat-val gold-c">${price:,.2f}</div>
-    <div class="stat-lbl" style="color:{chg_col}">{chg_s}{chg:.2f}% today</div>
+    <div class="stat-val gold-c" id="goldPrice">${price:,.2f}</div>
+    <div class="stat-lbl" id="goldChg" style="color:{chg_col}">{chg_s}{chg:.2f}% today</div>
   </div>
   <div class="card-sm">
     <div class="card-hdr">52W Range</div>
@@ -1285,7 +1297,22 @@ def gold_page(user: dict, market_data: dict) -> str:
   </div>
 </div>
 """
-    return _base("gold", "Gold Analysis", html, user, "", "")
+    gold_js = """
+function refreshGold(){
+  const btn=event.target;
+  btn.disabled=true;
+  document.getElementById('goldRefreshStatus').textContent='⏳ กำลังดึงราคา…';
+  fetch('/api/gold-spot').then(r=>r.json()).then(d=>{
+    if(!d.ok){document.getElementById('goldRefreshStatus').textContent='❌ '+(d.error||'Error');btn.disabled=false;return;}
+    const el=document.getElementById('goldPrice');
+    if(el) el.textContent='$'+d.price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    document.getElementById('goldRefreshStatus').textContent=
+      '✅ อัปเดต '+d.date+' · ราคา $'+d.price.toLocaleString()+' (฿'+d.price_thb.toLocaleString()+'/oz)';
+    btn.disabled=false;
+  }).catch(e=>{document.getElementById('goldRefreshStatus').textContent='❌ '+e;btn.disabled=false;});
+}
+"""
+    return _base("gold", "Gold Analysis", html, user, "", gold_js)
 
 # ─── CRYPTO PAGE ──────────────────────────────────────────────────────────────
 

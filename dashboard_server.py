@@ -293,6 +293,14 @@ def _do_market_refresh():
         except Exception as e:
             log.warning(f"[Vault] {e}")
 
+        # Override GC=F with Frankfurter XAU/USD (more accurate than yfinance delayed)
+        try:
+            gold_data = _fetch_gold_frankfurter(thb)
+            if gold_data:
+                mkt["GC=F"] = {**mkt.get("GC=F", {}), **gold_data}
+        except Exception as e:
+            log.warning(f"[Gold] Frankfurter: {e}")
+
         with _mkt_lock:
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
                                "updated": datetime.now(), "vault_picks": vault_picks})
@@ -308,6 +316,26 @@ def _do_market_refresh():
         return False
     finally:
         _refreshing.clear()
+
+def _fetch_gold_frankfurter(thb: float = 34.0) -> dict:
+    """Fetch XAU/USD spot price from Frankfurter API (free, daily rate)."""
+    import urllib.request as _ur
+    url = "https://api.frankfurter.app/latest?from=XAU&to=USD"
+    req = _ur.Request(url, headers={"User-Agent": "ArtheeNoi/1.0"})
+    with _ur.urlopen(req, timeout=6) as r:
+        data = json.loads(r.read())
+    usd_per_oz = float(data["rates"]["USD"])
+    thb_per_oz = round(usd_per_oz * thb, 2)
+    date_str   = data.get("date", "")
+    return {
+        "price":      round(usd_per_oz, 2),
+        "price_thb":  thb_per_oz,
+        "source":     "frankfurter",
+        "date":       date_str,
+        "symbol":     "XAU/USD",
+        "unit":       "troy oz",
+    }
+
 
 def _record_portfolio_snapshots(mkt: dict, thb: float):
     """Append daily portfolio value snapshot for every user (once per day)."""
@@ -2295,6 +2323,18 @@ def insider():
     return dw.insider_page(user, mkt or {})
 
 
+
+
+@app.route("/api/gold-spot")
+@login_required
+def api_gold_spot():
+    """Real-time XAU/USD from Frankfurter (daily rate, no API key needed)."""
+    try:
+        _, _, thb = _get_mkt()
+        data = _fetch_gold_frankfurter(thb or 34.0)
+        return jsonify({"ok": True, **data})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/search")
