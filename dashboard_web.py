@@ -924,7 +924,7 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
           </div>
           <div class="pbar"><div class="pbar-fill" style="width:{pct_range:.0f}%;background:var(--teal)"></div></div>
           <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--muted)">
-            <span>L ${d['low']:,.0f}</span><span>52W range</span><span>H ${d['high']:,.0f}</span>
+            <span>L ${d.get('low') or 0:,.0f}</span><span>52W range</span><span>H ${d.get('high') or 0:,.0f}</span>
           </div>
           <div style="margin-top:10px;text-align:right">
             <a href="/chart/{sym}" class="btn btn-ghost btn-sm">📉 Chart</a>
