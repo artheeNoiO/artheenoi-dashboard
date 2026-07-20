@@ -80,12 +80,29 @@ def _default_users() -> dict:
 
 _users_lock = threading.Lock()
 
+def _users_from_env() -> dict | None:
+    """Decode users from USERS_SEED env var (base64 JSON). Returns None if not set."""
+    import base64
+    seed = os.environ.get("USERS_SEED", "").strip()
+    if not seed:
+        return None
+    try:
+        return json.loads(base64.b64decode(seed).decode("utf-8"))
+    except Exception:
+        return None
+
 def load_users() -> dict:
     if USERS_FILE.exists():
         try:
             return json.loads(USERS_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
+    # Restore from USERS_SEED env var if available (persists across Render deploys)
+    seed_users = _users_from_env()
+    if seed_users:
+        log.info("[Users] Restored from USERS_SEED env var")
+        USERS_FILE.write_text(json.dumps(seed_users, indent=2, ensure_ascii=False), encoding="utf-8")
+        return seed_users
     users = _default_users()
     _save_users_raw(users)
     return users
@@ -293,13 +310,8 @@ def _do_market_refresh():
         except Exception as e:
             log.warning(f"[Vault] {e}")
 
-        # Override GC=F with live gold price (metals.live → yfinance fallback)
-        try:
-            gold_data = _fetch_gold_live(thb)
-            if gold_data:
-                mkt["GC=F"] = {**mkt.get("GC=F", {}), **gold_data}
-        except Exception as e:
-            log.warning(f"[Gold] live fetch: {e}")
+        # GC=F live price is fetched on-demand by /api/gold-xau (browser-polled every 5s)
+        # Do not duplicate yfinance calls here to avoid thread contention
 
         with _mkt_lock:
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
@@ -342,25 +354,46 @@ def _fetch_gold_live(thb: float = 34.0) -> dict:
     except Exception:
         pass
 
-    # --- try 2: yfinance 5-min intraday (more current than daily close) ---
-    import yfinance as yf
-    h = yf.download("GC=F", period="1d", interval="5m",
-                    progress=False, auto_adjust=True)
-    if not h.empty and "Close" in h.columns:
-        closes = h["Close"].squeeze()
-        price  = float(closes.iloc[-1])
-        prev   = float(closes.iloc[0])
-        chg    = (price - prev) / prev * 100 if prev else 0
-        return {
-            "price":     round(price, 2),
-            "price_thb": round(price * thb, 2),
-            "chg":       round(chg, 2),
-            "source":    "yfinance-5m",
-            "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "symbol":    "GC=F",
-            "unit":      "troy oz",
-        }
-    raise ValueError("ดึงราคาทองไม่ได้จากทุก source")
+    # --- try 2: yfinance 5-min intraday fallback ---
+    try:
+        import yfinance as yf
+        h = yf.download("GC=F", period="1d", interval="5m",
+                        progress=False, auto_adjust=True)
+        if not h.empty and "Close" in h.columns:
+            col = h["Close"]
+            # yfinance may return MultiIndex columns — flatten
+            if hasattr(col.columns if hasattr(col, 'columns') else col, '__len__'):
+                try:
+                    col = col.iloc[:, 0] if hasattr(col, 'columns') else col
+                except Exception:
+                    pass
+            closes_s = col.squeeze()
+            price = float(closes_s.iloc[-1])
+            prev  = float(closes_s.iloc[0])
+            chg   = (price - prev) / prev * 100 if prev else 0
+            return {
+                "price":     round(price, 2),
+                "price_thb": round(price * thb, 2),
+                "chg":       round(chg, 2),
+                "source":    "yfinance-5m",
+                "date":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "symbol":    "GC=F",
+                "unit":      "troy oz",
+            }
+    except Exception:
+        pass
+
+    # --- try 3: pull from existing market cache (GC=F daily) ---
+    try:
+        with _mkt_lock:
+            cached = _mkt_cache.get("data", {}).get("GC=F", {})
+        if cached.get("price", 0) > 100:
+            return {**cached, "source": "cache", "date": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    except Exception:
+        pass
+
+    return {"price": 0, "price_thb": 0, "source": "unavailable",
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"), "symbol": "GC=F", "unit": "troy oz"}
 
 
 def _fetch_gold_thai() -> dict:
@@ -879,6 +912,16 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
       </tbody>
     </table>
     {% endif %}
+  </div>
+
+  <!-- Persist Users -->
+  <div class="card" style="border-color:#FFD70044">
+    <h2 style="color:#FFD700">💾 บันทึกบัญชีให้คงอยู่หลัง Redeploy</h2>
+    <p style="font-size:12px;color:#94a3b8;margin-bottom:14px">Render free tier ไม่มี persistent disk — ทุกครั้งที่ deploy ใหม่ บัญชีจะหาย<br>
+    กดปุ่มนี้หลังสร้าง/ลบบัญชี → copy ค่าไปวางใน Render Environment Variables</p>
+    <a href="/admin/export-seed" target="_blank" class="btn btn-primary" style="background:#FFD700;color:#131722;text-decoration:none;display:inline-block">
+      📋 Export USERS_SEED (กันบัญชีหาย)
+    </a>
   </div>
 
   <!-- Market Cache Status -->
@@ -2691,6 +2734,42 @@ def admin_refresh_market():
         t = threading.Thread(target=_do_market_refresh, daemon=True)
         t.start()
     return redirect("/admin?msg=เริ่ม+refresh+ข้อมูลตลาดแล้ว+รอ+2-3+นาที&mt=ok")
+
+
+@app.route("/admin/export-seed")
+@admin_required
+def admin_export_seed():
+    """Export current users as base64 for USERS_SEED env var (persists across Render deploys)."""
+    import base64
+    with _users_lock:
+        users = load_users()
+    data_json = json.dumps(users, indent=2, ensure_ascii=False)
+    b64 = base64.b64encode(data_json.encode("utf-8")).decode()
+    html = f"""<!DOCTYPE html><html><head>
+<title>Export Users Seed</title>
+<style>body{{background:#131722;color:#e0e0e0;font-family:monospace;padding:32px;}}
+textarea{{width:100%;height:180px;background:#1e222d;color:#2dd4bf;border:1px solid #2dd4bf;
+padding:12px;font-family:monospace;font-size:12px;border-radius:6px;}}
+.btn{{background:#2dd4bf;color:#131722;border:none;padding:10px 20px;border-radius:6px;
+cursor:pointer;font-weight:700;margin-top:12px;}}
+h2{{color:#FFD700;}}.note{{color:#9999a8;font-size:13px;margin-top:16px;line-height:1.8}}</style>
+</head><body>
+<h2>📋 Export USERS_SEED</h2>
+<p style="color:#9999a8">คัดลอก value ด้านล่างไปวางที่ Render → Environment → <b style="color:#fff">USERS_SEED</b></p>
+<textarea id="seed" readonly>{b64}</textarea>
+<br><button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('seed').value);this.textContent='✅ Copied!'">📋 Copy to Clipboard</button>
+<div class="note">
+⚠️ <b>วิธีใช้:</b><br>
+1. Copy ค่าด้านบน<br>
+2. ไป Render Dashboard → Service → Environment<br>
+3. เพิ่ม / แก้ไข variable ชื่อ <b>USERS_SEED</b> แล้ววาง<br>
+4. กด Save → Render จะ redeploy อัตโนมัติ<br>
+5. ครั้งหน้าที่ deploy ใหม่ บัญชีผู้ใช้จะ restore อัตโนมัติ<br><br>
+<b>ทำทุกครั้ง</b>ที่สร้าง / ลบ / แก้บัญชีผู้ใช้
+</div>
+<br><br><a href="/admin" style="color:#2dd4bf">← กลับ Admin</a>
+</body></html>"""
+    return html
 
 # ─── Charts ───────────────────────────────────────────────────────────────────
 
