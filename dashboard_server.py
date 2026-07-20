@@ -573,6 +573,131 @@ def generate_for_user(username: str) -> str | None:
 
 # ─── HTML Templates ───────────────────────────────────────────────────────────
 
+_WELCOME_TPL = """<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ArtheeNoi — Welcome</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#080808;font-family:'Inter','Segoe UI',sans-serif}
+canvas{position:fixed;inset:0;z-index:0}
+.overlay{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;justify-content:space-between;padding:40px 56px}
+.top-label{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.3);font-weight:600}
+.center{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;flex:1;padding:0 0 60px}
+.welcome-word{font-size:clamp(70px,12vw,180px);font-weight:900;color:#f0f0f0;line-height:.88;letter-spacing:-5px;text-transform:uppercase;user-select:none}
+.welcome-script{font-size:clamp(24px,4vw,64px);color:rgba(255,255,255,.18);font-weight:400;letter-spacing:2px;margin-top:12px;text-transform:uppercase;letter-spacing:8px}
+.bottom{display:flex;align-items:flex-end;justify-content:space-between}
+.tagline{font-size:12px;color:rgba(255,255,255,.25);letter-spacing:2px;text-transform:uppercase;line-height:2}
+.enter-btn{background:#f0f0f0;color:#080808;border:none;padding:16px 48px;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;cursor:pointer;font-family:inherit;transition:.2s;text-decoration:none;display:inline-block}
+.enter-btn:hover{background:#fff;transform:translateY(-2px)}
+@media(max-width:600px){.overlay{padding:28px 28px}.welcome-word{letter-spacing:-3px}}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="overlay">
+  <div class="top-label">ArtheeNoi · Stock Dashboard · {% if logged_in %}Ready{% else %}Sign in to access{% endif %}</div>
+  <div class="center">
+    <div class="welcome-word">WELL<br>COME</div>
+    <div class="welcome-script">to the dashboard</div>
+  </div>
+  <div class="bottom">
+    <div class="tagline">
+      ระบบวิเคราะห์หุ้น<br>
+      สำหรับเพื่อน
+    </div>
+    {% if logged_in %}
+    <a href="/home" class="enter-btn">Enter Dashboard →</a>
+    {% else %}
+    <a href="/login" class="enter-btn">Sign In →</a>
+    {% endif %}
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('bg');
+const ctx = canvas.getContext('2d');
+let W, H, t = 0;
+const COLS = 40, ROWS = 22;
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+function noise(x, y, t){
+  return Math.sin(x*1.2 + t*0.6) * Math.cos(y*0.9 + t*0.4) * 0.5
+       + Math.sin(x*0.7 - t*0.3) * Math.sin(y*1.5 + t*0.5) * 0.3
+       + Math.cos(x*2.1 + y*1.1 + t*0.2) * 0.2;
+}
+
+function project(gx, gy, gz){
+  // Tilt the grid: center it, tilt forward (like a terrain viewed from above-front)
+  const cx = gx - 0.5, cy = gy - 0.5;
+  const tilt = 0.45;
+  const py = cy * Math.cos(tilt) - gz * Math.sin(tilt);
+  const pz = cy * Math.sin(tilt) + gz * Math.cos(tilt) + 1.6;
+  const scale = 1.1 / pz;
+  return {
+    sx: W * 0.5 + cx * scale * W * 0.9,
+    sy: H * 0.58 + py * scale * H * 0.75,
+    alpha: Math.max(0, Math.min(1, (pz - 0.8) * 0.6))
+  };
+}
+
+function draw(){
+  ctx.fillStyle = 'rgba(8,8,8,0.18)';
+  ctx.fillRect(0, 0, W, H);
+  t += 0.008;
+
+  const grid = [];
+  for(let r = 0; r <= ROWS; r++){
+    grid[r] = [];
+    for(let c = 0; c <= COLS; c++){
+      grid[r][c] = noise(c/COLS*4, r/ROWS*3, t) * 0.28;
+    }
+  }
+
+  // Draw horizontal lines
+  for(let r = 0; r <= ROWS; r++){
+    ctx.beginPath();
+    let first = true;
+    for(let c = 0; c <= COLS; c++){
+      const p = project(c/COLS, r/ROWS, grid[r][c]);
+      const bright = 0.07 + (1 - r/ROWS) * 0.13;
+      ctx.strokeStyle = `rgba(220,220,220,${bright * p.alpha})`;
+      if(first){ ctx.moveTo(p.sx, p.sy); first=false; }
+      else ctx.lineTo(p.sx, p.sy);
+    }
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+
+  // Draw vertical lines
+  for(let c = 0; c <= COLS; c++){
+    ctx.beginPath();
+    let first = true;
+    for(let r = 0; r <= ROWS; r++){
+      const p = project(c/COLS, r/ROWS, grid[r][c]);
+      const bright = 0.05 + (1 - r/ROWS) * 0.09;
+      ctx.strokeStyle = `rgba(200,200,200,${bright * p.alpha})`;
+      if(first){ ctx.moveTo(p.sx, p.sy); first=false; }
+      else ctx.lineTo(p.sx, p.sy);
+    }
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>"""
+
 _LOGIN_TPL = """<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -998,7 +1123,7 @@ def login():
         if user and _check(pwd, user["password_hash"]):
             session.permanent = True
             session["username"] = uname
-            return redirect("/")
+            return redirect("/home")
         error = "Username หรือ Password ไม่ถูกต้อง"
     return render_template_string(_LOGIN_TPL, error=error)
 
@@ -1026,9 +1151,19 @@ def _require_mkt():
         return bool(_mkt_cache.get("data"))
 
 @app.route("/")
-@login_required
 def index():
-    return redirect("/stocks")
+    return render_template_string(_WELCOME_TPL,
+        logged_in=("username" in session))
+
+@app.route("/home")
+@login_required
+def home():
+    import dashboard_web as dw
+    mkt, macro, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    if not user:
+        return redirect("/logout")
+    return dw.home_page(user, mkt, macro)
 
 @app.route("/stocks")
 @login_required

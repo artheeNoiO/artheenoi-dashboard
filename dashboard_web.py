@@ -51,18 +51,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
 /* ── Sidebar ── */
 .sb{width:220px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;z-index:50;overflow-y:auto}
-.sb-logo{display:flex;align-items:center;gap:10px;padding:18px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
-.sb-logo-icon{width:32px;height:32px;background:#f0f0f0;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
-.sb-logo-text{font-size:13px;font-weight:900;color:var(--text);letter-spacing:.5px;text-transform:uppercase}
-.sb-link{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--mid);text-decoration:none;font-size:12px;font-weight:500;transition:.15s;border-left:2px solid transparent;letter-spacing:.2px}
-.sb-link:hover{background:rgba(255,255,255,0.04);color:var(--text)}
-.sb-link.active{background:var(--bg3);color:var(--text);border-left-color:var(--text)}
-.sb-icon{font-size:18px;width:22px;text-align:center;flex-shrink:0}
-.sb-label{font-size:13px}
+.sb-logo{display:flex;align-items:center;padding:20px 16px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sb-logo-icon{display:none}
+.sb-logo-text{font-size:14px;font-weight:900;color:var(--text);letter-spacing:2px;text-transform:uppercase}
+.sb-link{display:flex;align-items:center;padding:9px 16px;color:var(--muted);text-decoration:none;font-size:11px;font-weight:600;transition:.12s;border-left:2px solid transparent;letter-spacing:1.5px;text-transform:uppercase}
+.sb-link:hover{color:var(--text);background:rgba(255,255,255,0.03)}
+.sb-link.active{color:var(--text);border-left-color:var(--text);background:rgba(255,255,255,0.04)}
+.sb-icon{display:none}
+.sb-label{font-size:11px;letter-spacing:1.5px;font-weight:600}
 .tip{display:none}
 .sb-spacer{flex:1}
 .sb-bot{border-top:1px solid var(--border);padding:8px 0}
-@media(max-width:700px){.sb{width:64px}.sb-label{display:none}.sb-logo-text{display:none}}
+@media(max-width:700px){.sb{width:52px}.sb-label{display:none}.sb-logo-text{display:none}}
 
 /* ── Main ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
@@ -393,9 +393,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
     nav_html = ""
     for nid, icon, label in nav:
         act = "active" if nid == page_id else ""
-        nav_html += (f'<a class="sb-link {act}" href="/{nid}">'
-                     f'<span class="sb-icon">{icon}</span>'
-                     f'<span class="sb-label">{label}</span></a>\n')
+        nav_html += f'<a class="sb-link {act}" href="/{nid}"><span class="sb-label">{label}</span></a>\n'
 
     return f"""<!DOCTYPE html>
 <html lang="th">
@@ -420,15 +418,14 @@ def _base(page_id: str, title: str, content: str, user: dict,
   <!-- Sidebar -->
   <nav class="sb" id="sidebar">
     <div class="sb-logo">
-      <div class="sb-logo-icon">📊</div>
       <span class="sb-logo-text">ArtheeNoi</span>
     </div>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings"><span class="sb-icon">⚙️</span><span class="sb-label">Settings</span></a>
-      {'<a class="sb-link" href="/admin"><span class="sb-icon">👑</span><span class="sb-label">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout"><span class="sb-icon">🚪</span><span class="sb-label">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-label">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-label">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-label">Logout</span></a>
     </div>
   </nav>
   <!-- Main -->
@@ -467,11 +464,11 @@ def _base(page_id: str, title: str, content: str, user: dict,
 </div>
 <!-- Bottom nav (mobile only) -->
 <nav class="bottom-nav">
-  <a href="/stocks" class="{'active' if page_id=='stocks' else ''}"><span class="bn-icon">📊</span><span class="bn-lbl">Stocks</span></a>
-  <a href="/charts" class="{'active' if page_id=='charts' else ''}"><span class="bn-icon">📉</span><span class="bn-lbl">Charts</span></a>
-  <a href="/screener" class="{'active' if page_id=='screener' else ''}"><span class="bn-icon">🔭</span><span class="bn-lbl">Screener</span></a>
-  <a href="/alerts" class="{'active' if page_id=='alerts' else ''}"><span class="bn-icon">🔔</span><span class="bn-lbl">Alerts</span></a>
-  <a href="/macro" class="{'active' if page_id=='macro' else ''}"><span class="bn-icon">🌐</span><span class="bn-lbl">Macro</span></a>
+  <a href="/stocks" class="{'active' if page_id=='stocks' else ''}"><span class="bn-lbl">STOCKS</span></a>
+  <a href="/charts" class="{'active' if page_id=='charts' else ''}"><span class="bn-lbl">CHARTS</span></a>
+  <a href="/screener" class="{'active' if page_id=='screener' else ''}"><span class="bn-lbl">SCREEN</span></a>
+  <a href="/alerts" class="{'active' if page_id=='alerts' else ''}"><span class="bn-lbl">ALERTS</span></a>
+  <a href="/macro" class="{'active' if page_id=='macro' else ''}"><span class="bn-lbl">MACRO</span></a>
 </nav>
 <script>
 // ── Sidebar toggle (mobile) ──────────────────────────────────────────
@@ -577,11 +574,11 @@ function installPWA() {{
 }}
 </script>
 <nav class="bottom-nav" style="display:none">
-  <a href="/stocks" class="{bn_stocks}"><span class="bn-icon">📊</span>Stocks</a>
-  <a href="/charts" class="{bn_charts}"><span class="bn-icon">📉</span>Charts</a>
-  <a href="/screener" class="{bn_screen}"><span class="bn-icon">🔭</span>Screen</a>
-  <a href="/scanner" class="{bn_scanner}"><span class="bn-icon">🔍</span>Scan</a>
-  <a href="/chat" class="{bn_chat}"><span class="bn-icon">💬</span>Chat</a>
+  <a href="/stocks" class="{bn_stocks}">STOCKS</a>
+  <a href="/charts" class="{bn_charts}">CHARTS</a>
+  <a href="/screener" class="{bn_screen}">SCREEN</a>
+  <a href="/scanner" class="{bn_scanner}">SCAN</a>
+  <a href="/chat" class="{bn_chat}">CHAT</a>
 </nav>
 </body></html>"""
 
@@ -3339,20 +3336,17 @@ def _sidebar_html(user: dict, active: str) -> str:
     nav_html = ""
     for nid, icon, label in nav:
         a = "active" if nid == active else ""
-        nav_html += (f'<a class="sb-link {a}" href="/{nid}">'
-                     f'<span class="sb-icon">{icon}</span>'
-                     f'<span class="sb-label">{label}</span></a>\n')
+        nav_html += f'<a class="sb-link {a}" href="/{nid}"><span class="sb-label">{label}</span></a>\n'
     return f"""<nav class="sb">
     <div class="sb-logo">
-      <div class="sb-logo-icon">📊</div>
       <span class="sb-logo-text">ArtheeNoi</span>
     </div>
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings"><span class="sb-icon">⚙️</span><span class="sb-label">Settings</span></a>
-      {'<a class="sb-link" href="/admin"><span class="sb-icon">👑</span><span class="sb-label">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout"><span class="sb-icon">🚪</span><span class="sb-label">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-label">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-label">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-label">Logout</span></a>
     </div>
   </nav>"""
 
