@@ -389,6 +389,18 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
+    _TH = {
+        "stocks":"หุ้น","watchlist":"ติดตาม","journal":"บันทึก","charts":"กราฟ",
+        "gold":"ทอง","crypto":"คริปโต","dca":"DCA","signals":"สัญญาณ",
+        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","paper":"ทดลอง",
+        "ai":"AI","screener":"คัดกรอง","heatmap":"ฮีตแมป","analytics":"วิเคราะห์",
+        "scanner":"สแกน","chat":"แชท","alerts":"แจ้งเตือน","calendar":"ปฏิทิน",
+        "options":"ออปชัน","backtest":"ทดสอบ","correlation":"สหสัมพันธ์",
+        "report":"รายงาน","risk":"ความเสี่ยง","benchmark":"เปรียบ","realized":"กำไรจริง",
+        "compare":"เปรียบเทียบ","macro":"มาโคร","earnings":"กำไร","sentiment":"ความรู้สึก",
+        "targets":"เป้าหมาย","portfolios":"พอร์ต","insider":"อินไซเดอร์",
+        "settings":"ตั้งค่า","admin":"แอดมิน","logout":"ออกจากระบบ","home":"หน้าหลัก",
+    }
     nav = [(nid, ic, lb) for nid, ic, lb in nav if nid not in ("settings", "home")]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -398,7 +410,8 @@ def _base(page_id: str, title: str, content: str, user: dict,
     nav_html = ""
     for nid, icon, label in nav:
         act = "active" if nid == page_id else ""
-        nav_html += f'<a class="sb-link {act}" href="/{nid}"><span class="sb-label">{label}</span></a>\n'
+        th = _TH.get(nid, label)
+        nav_html += f'<a class="sb-link {act}" href="/{nid}"><span class="sb-label" data-en="{label}" data-th="{th}">{label}</span></a>\n'
 
     return f"""<!DOCTYPE html>
 <html lang="th">
@@ -428,9 +441,9 @@ def _base(page_id: str, title: str, content: str, user: dict,
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings"><span class="sb-label">Settings</span></a>
-      {'<a class="sb-link" href="/admin"><span class="sb-label">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout"><span class="sb-label">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-label" data-en="Settings" data-th="ตั้งค่า">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-label" data-en="Admin" data-th="แอดมิน">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-label" data-en="Logout" data-th="ออกจากระบบ">Logout</span></a>
     </div>
   </nav>
   <!-- Main -->
@@ -455,6 +468,10 @@ def _base(page_id: str, title: str, content: str, user: dict,
         <span id="mktLabel" style="font-size:11px;color:var(--mid)">Market</span>
         <span class="top-pill" id="thbRate">🇹🇭 ฿—</span>
         <span class="top-pill" id="mktTime">--:--</span>
+        <button id="langBtn" onclick="toggleLang()" title="เปลี่ยนภาษา"
+          style="background:transparent;border:1px solid var(--border);color:var(--mid);font-size:10px;font-weight:700;letter-spacing:1px;padding:4px 8px;border-radius:3px;cursor:pointer;font-family:inherit;transition:.12s"
+          onmouseover="this.style.color='var(--text)';this.style.borderColor='#666'"
+          onmouseout="this.style.color='var(--mid)';this.style.borderColor='var(--border)'">EN</button>
         <button id="pwa-install-btn" onclick="installPWA()" title="Install as App">📲 Install</button>
         <span class="top-user" onclick="location.href='/settings'">👤 {display}</span>
       </div>
@@ -577,6 +594,25 @@ window.addEventListener('beforeinstallprompt', e => {{
 function installPWA() {{
   if (_installPrompt) {{ _installPrompt.prompt(); _installPrompt = null; }}
 }}
+
+// ── Language switcher ──────────────────────────────────────────────
+function applyLang(lang) {{
+  document.querySelectorAll('[data-en][data-th]').forEach(el => {{
+    el.textContent = lang === 'th' ? el.dataset.th : el.dataset.en;
+  }});
+  const btn = document.getElementById('langBtn');
+  if (btn) btn.textContent = lang === 'th' ? 'EN' : 'TH';
+  document.documentElement.lang = lang;
+  localStorage.setItem('lang', lang);
+}}
+function toggleLang() {{
+  const cur = localStorage.getItem('lang') || 'en';
+  applyLang(cur === 'th' ? 'en' : 'th');
+}}
+(function(){{
+  const saved = localStorage.getItem('lang') || 'en';
+  if (saved === 'th') applyLang('th');
+}})();
 </script>
 <nav class="bottom-nav" style="display:none">
   <a href="/stocks" class="{bn_stocks}">STOCKS</a>
@@ -3493,11 +3529,23 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("settings",    "⚙️", "Settings"),
         ("insider",     "🏦", "Insider"),
     ]
+    _TH2 = {
+        "stocks":"หุ้น","watchlist":"ติดตาม","journal":"บันทึก","charts":"กราฟ",
+        "gold":"ทอง","crypto":"คริปโต","dca":"DCA","signals":"สัญญาณ",
+        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","paper":"ทดลอง",
+        "ai":"AI","screener":"คัดกรอง","heatmap":"ฮีตแมป","analytics":"วิเคราะห์",
+        "scanner":"สแกน","chat":"แชท","alerts":"แจ้งเตือน","calendar":"ปฏิทิน",
+        "options":"ออปชัน","backtest":"ทดสอบ","correlation":"สหสัมพันธ์",
+        "report":"รายงาน","risk":"ความเสี่ยง","benchmark":"เปรียบ","realized":"กำไรจริง",
+        "compare":"เปรียบเทียบ","macro":"มาโคร","earnings":"กำไร","sentiment":"ความรู้สึก",
+        "targets":"เป้าหมาย","portfolios":"พอร์ต","insider":"อินไซเดอร์",
+    }
     nav = [(nid, ic, lb) for nid, ic, lb in nav if nid not in ("settings", "home")]
     nav_html = ""
     for nid, icon, label in nav:
         a = "active" if nid == active else ""
-        nav_html += f'<a class="sb-link {a}" href="/{nid}"><span class="sb-label">{label}</span></a>\n'
+        th = _TH2.get(nid, label)
+        nav_html += f'<a class="sb-link {a}" href="/{nid}"><span class="sb-label" data-en="{label}" data-th="{th}">{label}</span></a>\n'
     return f"""<nav class="sb">
     <a href="/home" class="sb-logo" style="text-decoration:none">
       <span class="sb-logo-text">ArtheeNoi</span>
@@ -3505,9 +3553,9 @@ def _sidebar_html(user: dict, active: str) -> str:
     {nav_html}
     <div class="sb-spacer"></div>
     <div class="sb-bot">
-      <a class="sb-link" href="/settings"><span class="sb-label">Settings</span></a>
-      {'<a class="sb-link" href="/admin"><span class="sb-label">Admin</span></a>' if is_admin else ''}
-      <a class="sb-link" href="/logout"><span class="sb-label">Logout</span></a>
+      <a class="sb-link" href="/settings"><span class="sb-label" data-en="Settings" data-th="ตั้งค่า">Settings</span></a>
+      {'<a class="sb-link" href="/admin"><span class="sb-label" data-en="Admin" data-th="แอดมิน">Admin</span></a>' if is_admin else ''}
+      <a class="sb-link" href="/logout"><span class="sb-label" data-en="Logout" data-th="ออกจากระบบ">Logout</span></a>
     </div>
   </nav>"""
 
