@@ -908,8 +908,8 @@ def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
 
         # Entry signal
         action = "BUY" if (rsi and rsi <= 35) else "WATCH" if (rsi and rsi <= 45) else "WAIT" if (rsi and rsi >= 65) else "AVOID" if (rsi and rsi >= 75) else "NEUTRAL"
-        rng = d["high"] - d["low"] if d.get("high") and d.get("low") else 1
-        pct_range = (d["price"] - d["low"]) / rng * 100 if rng else 50
+        rng = (d.get("high", 0) - d.get("low", 0)) if d.get("high") and d.get("low") else 1
+        pct_range = (d["price"] - d.get("low", 0)) / rng * 100 if rng else 50
 
         wl_cards += f"""
         <div class="card-sm" style="cursor:default">
