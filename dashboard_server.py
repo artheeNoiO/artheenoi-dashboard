@@ -2250,6 +2250,75 @@ def settings_save():
     return redirect("/settings")
 
 
+@app.route("/api/insider/<sym>")
+@login_required
+def api_insider(sym):
+    """Insider transactions via yfinance (SEC Form 4)."""
+    sym = sym.upper()
+    try:
+        import yfinance as yf
+        t = yf.Ticker(sym)
+        df = t.insider_transactions
+        if df is None or (hasattr(df, "empty") and df.empty):
+            return jsonify({"sym": sym, "transactions": [],
+                            "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        rows = []
+        for _, row in df.head(30).iterrows():
+            try:
+                shares = int(row.get("Shares", 0) or 0)
+                price  = float(row.get("Value", 0) or 0) / shares if shares else 0
+                value  = float(row.get("Value", 0) or 0)
+                rows.append({
+                    "date":   str(row.get("Start Date", ""))[:10],
+                    "name":   str(row.get("Insider", "")),
+                    "title":  str(row.get("Position", "")),
+                    "type":   str(row.get("Transaction", "")),
+                    "shares": shares,
+                    "price":  round(price, 2),
+                    "value":  value,
+                })
+            except Exception:
+                continue
+        return jsonify({"sym": sym, "transactions": rows,
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    except Exception as e:
+        return jsonify({"sym": sym, "transactions": [], "error": str(e),
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+
+@app.route("/insider")
+@login_required
+def insider():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.insider_page(user, mkt or {})
+
+
+
+
+@app.route("/api/search")
+@login_required
+def api_search():
+    q = request.args.get("q", "").upper().strip()
+    if not q:
+        return jsonify([])
+    try:
+        import at_stock_vault as v
+        vault = v.VAULT
+    except Exception:
+        vault = []
+    results = []
+    for item in vault:
+        sym  = item.get("t", "")
+        name = item.get("c", "")
+        if q in sym or q in name.upper():
+            results.append({"sym": sym, "name": name})
+        if len(results) >= 8:
+            break
+    return jsonify(results)
+
+
 @app.route("/api/macro")
 @login_required
 def api_macro():

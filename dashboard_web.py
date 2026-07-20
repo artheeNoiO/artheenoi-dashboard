@@ -216,32 +216,44 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal)}
 .chart-panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden}
 .chart-panel-label{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--bg3)}
 
+/* ── Hamburger button ── */
+.hamburger{display:none;flex-direction:column;gap:5px;background:none;border:none;cursor:pointer;padding:8px;z-index:301}
+.hamburger span{display:block;width:22px;height:2px;background:var(--mid);border-radius:2px;transition:.3s}
+.hamburger.open span:nth-child(1){transform:rotate(45deg) translate(5px,5px)}
+.hamburger.open span:nth-child(2){opacity:0}
+.hamburger.open span:nth-child(3){transform:rotate(-45deg) translate(5px,-5px)}
+/* ── Sidebar overlay ── */
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:299}
+.sb-overlay.open{display:block}
+/* ── Search dropdown ── */
+.search-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:8px;z-index:500;max-height:240px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.search-item{padding:8px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--bg3)}
+.search-item:last-child{border-bottom:none}
+.search-item:hover{background:var(--bg3)}
+.search-item .s-sym{font-weight:700;color:var(--teal);min-width:56px}
+.search-item .s-name{color:var(--muted);font-size:11px}
+/* ── Bottom nav (mobile) ── */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--bg2);border-top:1px solid var(--border);height:58px;justify-content:space-around;align-items:center}
+.bottom-nav a{display:flex;flex-direction:column;align-items:center;color:var(--mid);text-decoration:none;font-size:9px;gap:2px;padding:6px 4px;border-radius:8px;transition:.15s;flex:1;min-width:0}
+.bottom-nav a.active{color:var(--teal)}
+.bottom-nav a .bn-icon{font-size:19px;line-height:1}
+.bottom-nav a .bn-lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48px;text-align:center}
 /* ── Mobile Responsive ── */
 @media (max-width: 768px) {
-  .sidebar { display: none !important; }
-  .main-content { margin-left: 0 !important; padding: 12px 10px 70px !important; }
-  .topbar { padding: 0 10px; }
-  .topbar-search { display: none; }
-  .bottom-nav {
-    display: flex !important;
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
-    background: var(--bg2); border-top: 1px solid var(--border);
-    height: 56px; justify-content: space-around; align-items: center;
-  }
-  .bottom-nav a {
-    display: flex; flex-direction: column; align-items: center;
-    color: var(--mid); text-decoration: none; font-size: 9px; gap: 2px;
-    padding: 6px 8px; border-radius: 8px; transition: .15s; flex: 1;
-  }
-  .bottom-nav a.active { color: var(--teal); }
-  .bottom-nav a span.bn-icon { font-size: 18px; line-height: 1; }
-  .tbl-wrap, table { overflow-x: auto; display: block; }
-  .g2, .g3, .g4 { grid-template-columns: 1fr !important; }
-  #chart-main, #chart-volume, #chart-rsi, #chart-macd { width: 100% !important; }
-  .topbar-right .thb-pill { display: none; }
+  .hamburger{display:flex}
+  .sb{position:fixed;left:-240px;top:0;height:100vh;z-index:300;transition:left .3s;width:220px}
+  .sb.open{left:0}
+  .topbar-search{max-width:none;flex:1}
+  .top-pill{display:none}
+  .content{padding:14px 12px 70px}
+  .bottom-nav{display:flex}
+  .g2,.g3,.g4{grid-template-columns:1fr!important}
+  .tbl td,.tbl th{padding:6px 8px;font-size:12px}
+  .stat-value{font-size:18px}
 }
-@media (min-width: 769px) {
-  .bottom-nav { display: none !important; }
+@media (min-width:769px){
+  .bottom-nav{display:none!important}
+  .sb-overlay{display:none!important}
 }
 
 /* ── Toast Notifications ── */
@@ -370,6 +382,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("targets",     "🎯", "Targets"),
         ("portfolios",  "💼", "Portfolios"),
         ("settings",    "⚙️", "Settings"),
+        ("insider",     "🏦", "Insider"),
     ]
     bn_stocks  = "active" if page_id == "stocks"   else ""
     bn_charts  = "active" if page_id == "charts"   else ""
@@ -400,9 +413,11 @@ def _base(page_id: str, title: str, content: str, user: dict,
 </style>
 </head>
 <body>
+<!-- Sidebar overlay for mobile -->
+<div class="sb-overlay" id="sbOverlay" onclick="closeSidebar()"></div>
 <div class="layout">
   <!-- Sidebar -->
-  <nav class="sb">
+  <nav class="sb" id="sidebar">
     <div class="sb-logo">
       <div class="sb-logo-icon">📊</div>
       <span class="sb-logo-text">ArtheeNoi</span>
@@ -419,10 +434,18 @@ def _base(page_id: str, title: str, content: str, user: dict,
   <div class="main">
     <!-- Topbar -->
     <div class="topbar">
-      <div class="topbar-search">
+      <button class="hamburger" id="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="topbar-search" style="position:relative">
         <span class="topbar-search-icon">🔍</span>
-        <input type="text" placeholder="Symbol search... (Enter)" id="symSearch"
-          onkeydown="if(event.key==='Enter'){{var s=this.value.trim().toUpperCase();if(s)location.href='/chart/'+s;}}">
+        <input type="text" placeholder="ค้นหา symbol... (Enter)" id="symSearch"
+          autocomplete="off"
+          oninput="onSearchInput(this.value)"
+          onkeydown="onSearchKey(event)"
+          onfocus="onSearchInput(this.value)"
+          onblur="setTimeout(()=>document.getElementById('searchDrop').style.display='none',200)">
+        <div id="searchDrop" class="search-dropdown" style="display:none"></div>
       </div>
       <div class="topbar-right">
         <span id="mktDot" class="mkt-dot mkt-closed"></span>
@@ -441,8 +464,67 @@ def _base(page_id: str, title: str, content: str, user: dict,
     </div>
   </div>
 </div>
+<!-- Bottom nav (mobile only) -->
+<nav class="bottom-nav">
+  <a href="/stocks" class="{'active' if page_id=='stocks' else ''}"><span class="bn-icon">📊</span><span class="bn-lbl">Stocks</span></a>
+  <a href="/charts" class="{'active' if page_id=='charts' else ''}"><span class="bn-icon">📉</span><span class="bn-lbl">Charts</span></a>
+  <a href="/screener" class="{'active' if page_id=='screener' else ''}"><span class="bn-icon">🔭</span><span class="bn-lbl">Screener</span></a>
+  <a href="/alerts" class="{'active' if page_id=='alerts' else ''}"><span class="bn-icon">🔔</span><span class="bn-lbl">Alerts</span></a>
+  <a href="/macro" class="{'active' if page_id=='macro' else ''}"><span class="bn-icon">🌐</span><span class="bn-lbl">Macro</span></a>
+</nav>
 <script>
-// Clock
+// ── Sidebar toggle (mobile) ──────────────────────────────────────────
+function toggleSidebar(){{
+  const sb=document.getElementById('sidebar');
+  const hb=document.getElementById('hamburger');
+  const ov=document.getElementById('sbOverlay');
+  const open=sb.classList.toggle('open');
+  hb.classList.toggle('open',open);
+  ov.classList.toggle('open',open);
+}}
+function closeSidebar(){{
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('hamburger').classList.remove('open');
+  document.getElementById('sbOverlay').classList.remove('open');
+}}
+// Close sidebar when nav link clicked on mobile
+document.addEventListener('DOMContentLoaded',()=>{{
+  document.querySelectorAll('.sb-link').forEach(a=>a.addEventListener('click',()=>{{
+    if(window.innerWidth<=768)closeSidebar();
+  }}));
+}});
+// ── Global symbol search ─────────────────────────────────────────────
+const _SEARCH_SYMS=[
+  ['NVDA','NVIDIA'],['MSFT','Microsoft'],['AAPL','Apple'],['GOOGL','Alphabet'],
+  ['META','Meta'],['AMZN','Amazon'],['TSLA','Tesla'],['AMD','AMD'],
+  ['AVGO','Broadcom'],['MRVL','Marvell'],['INTC','Intel'],['TSM','TSMC'],
+  ['NOW','ServiceNow'],['CRWD','CrowdStrike'],['SOFI','SoFi'],['VST','Vistra'],
+  ['QQQ','Nasdaq ETF'],['IVV','S&P500 ETF'],['DIA','Dow ETF'],['SPY','S&P500 ETF'],
+  ['BTC-USD','Bitcoin'],['ETH-USD','Ethereum'],['GC=F','Gold Futures'],['CL=F','Oil WTI'],
+  ['CRWV','CoreWeave'],['SPCX','Space ETF'],['NOK','Nokia'],['ASTS','AST SpaceMobile'],
+];
+function onSearchInput(val){{
+  const q=val.trim().toUpperCase();
+  const drop=document.getElementById('searchDrop');
+  if(!q){{drop.style.display='none';return;}}
+  const matches=_SEARCH_SYMS.filter(([s,n])=>s.includes(q)||n.toUpperCase().includes(q)).slice(0,8);
+  if(!matches.length){{drop.style.display='none';return;}}
+  drop.innerHTML=matches.map(([s,n])=>`<div class="search-item" onmousedown="goSearch('${{s}}')"><span class="s-sym">${{s}}</span><span class="s-name">${{n}}</span></div>`).join('');
+  drop.style.display='block';
+}}
+function onSearchKey(e){{
+  if(e.key==='Enter'){{
+    const q=document.getElementById('symSearch').value.trim().toUpperCase();
+    if(q)goSearch(q);
+  }}
+  if(e.key==='Escape')document.getElementById('searchDrop').style.display='none';
+}}
+function goSearch(sym){{
+  document.getElementById('symSearch').value=sym;
+  document.getElementById('searchDrop').style.display='none';
+  location.href='/charts?sym='+sym;
+}}
+// ── Clock ────────────────────────────────────────────────────────────
 function updateClock(){{
   const now=new Date();
   document.getElementById('mktTime').textContent=now.toLocaleTimeString('th-TH',{{hour:'2-digit',minute:'2-digit'}});
@@ -3166,6 +3248,7 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("targets",     "🎯", "Targets"),
         ("portfolios",  "💼", "Portfolios"),
         ("settings",    "⚙️", "Settings"),
+        ("insider",     "🏦", "Insider"),
     ]
     nav_html = ""
     for nid, icon, label in nav:
@@ -6464,6 +6547,166 @@ def settings_page(user: dict, flash_msg: str = "") -> str:
 </div>
 """
     return _base("settings", "Settings", html, user, "", "")
+
+
+def admin_page(users: dict, flash: str = "") -> str:
+    flash_html = f'<div style="background:#1a3a2a;border-left:3px solid var(--green);padding:10px 14px;border-radius:4px;margin-bottom:14px;font-size:13px;color:var(--green)">{flash}</div>' if flash else ""
+    rows = ""
+    for uname, u in users.items():
+        if uname.startswith("_") or not isinstance(u, dict):
+            continue
+        port_count = len(u.get("portfolio", {}))
+        wl_count   = len(u.get("watchlist", []))
+        role       = u.get("role", "user")
+        display    = u.get("display_name", uname)
+        last_upd   = u.get("last_updated", "—") or "—"
+        badge_col  = "var(--gold)" if role == "admin" else "var(--teal)"
+        rows += f"""<tr>
+          <td><b>{display}</b><div style="font-size:11px;color:var(--muted)">{uname}</div></td>
+          <td><span style="color:{badge_col};font-weight:700;font-size:11px">{role.upper()}</span></td>
+          <td style="text-align:right">{port_count}</td>
+          <td style="text-align:right">{wl_count}</td>
+          <td style="font-size:11px;color:var(--muted)">{str(last_upd)[:16]}</td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <form method="POST" action="/admin/reset-password" style="margin:0;display:flex;gap:4px">
+                <input type="hidden" name="uname" value="{uname}">
+                <input name="new_pwd" placeholder="รหัสใหม่" style="width:100px;font-size:11px;padding:4px 8px">
+                <button class="btn btn-secondary btn-sm" type="submit">🔑 Reset</button>
+              </form>
+              {f'''<form method="POST" action="/admin/delete-user" style="margin:0" onsubmit="return confirm('ลบ user {uname}?')">
+                <input type="hidden" name="uname" value="{uname}">
+                <button class="btn btn-danger btn-sm" type="submit">🗑️</button>
+              </form>''' if role != "admin" else ''}
+            </div>
+          </td>
+        </tr>"""
+
+    dummy_user = {"display_name": "Admin", "role": "admin"}
+    html = f"""
+{flash_html}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">👑 User Management ({len([u for k,u in users.items() if not k.startswith('_') and isinstance(u,dict)])} users)</div>
+  <div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr>
+      <th>User</th><th>Role</th><th>Portfolio</th><th>Watchlist</th><th>Last Update</th><th>Actions</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-hdr">➕ เพิ่ม User ใหม่</div>
+  <form method="POST" action="/admin/create-user" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Username</div>
+      <input name="uname" placeholder="username" style="width:130px" required>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Display Name</div>
+      <input name="display" placeholder="ชื่อแสดง" style="width:150px" required>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Password</div>
+      <input name="pwd" type="password" placeholder="รหัสผ่าน" style="width:130px" required>
+    </div>
+    <button class="btn btn-primary" type="submit">➕ สร้าง User</button>
+  </form>
+</div>
+"""
+    return _base("admin", "Admin Panel", html, dummy_user, "", "")
+
+
+def insider_page(user: dict, market_data: dict) -> str:
+    ticker_html = _ticker_html(market_data)
+    port_syms = list(user.get("portfolio", {}).keys())
+    wl_syms   = user.get("watchlist", [])
+    suggest   = list(dict.fromkeys(port_syms + wl_syms))[:5]
+    default   = suggest[0] if suggest else "NVDA"
+
+    html = f"""
+<div class="card" style="margin-bottom:14px">
+  <div class="card-hdr">🏦 Insider Trading — SEC Form 4</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:10px">ดู insider ซื้อ/ขายหุ้นบริษัทตัวเอง · ข้อมูลจาก yfinance (SEC filings)</div>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Symbol</div>
+      <input id="insiderSym" value="{default}" placeholder="NVDA" style="width:120px;text-transform:uppercase"
+             list="insiderSuggest" oninput="this.value=this.value.toUpperCase()">
+      <datalist id="insiderSuggest">{"".join(f'<option value="{s}">' for s in suggest)}</datalist>
+    </div>
+    <button class="btn btn-primary" onclick="loadInsider()">🔍 ดู Insider</button>
+  </div>
+</div>
+
+<div id="insiderStatus" style="color:var(--muted);font-size:12px;margin-bottom:10px"></div>
+
+<div class="card" id="insiderCard" style="display:none">
+  <div class="card-hdr" id="insiderHdr">Insider Transactions</div>
+  <div style="overflow-x:auto">
+    <table class="tbl" id="insiderTable"></table>
+  </div>
+  <div id="insiderSummary" style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px"></div>
+</div>
+"""
+
+    js = """
+function loadInsider(){
+  const sym=document.getElementById('insiderSym').value.trim().toUpperCase();
+  if(!sym){document.getElementById('insiderStatus').textContent='⚠️ ใส่ symbol ก่อน';return;}
+  document.getElementById('insiderStatus').textContent='⏳ กำลังดึงข้อมูล SEC filings…';
+  document.getElementById('insiderCard').style.display='none';
+  fetch('/api/insider/'+sym).then(r=>r.json()).then(d=>{
+    if(d.error){document.getElementById('insiderStatus').textContent='❌ '+d.error;return;}
+    document.getElementById('insiderHdr').textContent='🏦 Insider Transactions — '+sym+' ('+d.transactions.length+' รายการ)';
+    let html='<thead><tr><th>วันที่</th><th>Insider</th><th>ตำแหน่ง</th><th>Action</th><th style="text-align:right">จำนวนหุ้น</th><th style="text-align:right">ราคา</th><th style="text-align:right">มูลค่า</th></tr></thead><tbody>';
+    for(const t of d.transactions){
+      const isBuy=t.type&&t.type.toLowerCase().includes('buy');
+      const col=isBuy?'var(--green)':'var(--red)';
+      const label=isBuy?'BUY':'SELL';
+      html+=`<tr>
+        <td style="color:var(--muted);font-size:11px">${t.date||'—'}</td>
+        <td style="font-size:12px;font-weight:600">${t.name||'—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${t.title||'—'}</td>
+        <td><span style="color:${col};font-weight:700;font-size:11px;border:1px solid ${col};padding:1px 6px;border-radius:4px">${label}</span></td>
+        <td style="text-align:right;font-weight:600">${(t.shares||0).toLocaleString()}</td>
+        <td style="text-align:right">$${(t.price||0).toFixed(2)}</td>
+        <td style="text-align:right;color:${col}">${t.value?'$'+(t.value/1e6).toFixed(2)+'M':'—'}</td>
+      </tr>`;
+    }
+    html+='</tbody>';
+    document.getElementById('insiderTable').innerHTML=html;
+    // Summary
+    const buys=d.transactions.filter(t=>t.type&&t.type.toLowerCase().includes('buy'));
+    const sells=d.transactions.filter(t=>!t.type||!t.type.toLowerCase().includes('buy'));
+    const buyVal=buys.reduce((a,t)=>a+(t.value||0),0);
+    const sellVal=sells.reduce((a,t)=>a+(t.value||0),0);
+    const net=buyVal-sellVal;
+    const netCol=net>=0?'var(--green)':'var(--red)';
+    document.getElementById('insiderSummary').innerHTML=`
+      <div class="card" style="padding:10px 14px;flex:1;min-width:130px">
+        <div style="font-size:10px;color:var(--muted)">Buy Value</div>
+        <div style="font-size:16px;font-weight:800;color:var(--green)">$${(buyVal/1e6).toFixed(2)}M</div>
+        <div style="font-size:11px;color:var(--muted)">${buys.length} transactions</div>
+      </div>
+      <div class="card" style="padding:10px 14px;flex:1;min-width:130px">
+        <div style="font-size:10px;color:var(--muted)">Sell Value</div>
+        <div style="font-size:16px;font-weight:800;color:var(--red)">$${(sellVal/1e6).toFixed(2)}M</div>
+        <div style="font-size:11px;color:var(--muted)">${sells.length} transactions</div>
+      </div>
+      <div class="card" style="padding:10px 14px;flex:1;min-width:130px">
+        <div style="font-size:10px;color:var(--muted)">Net Insider Flow</div>
+        <div style="font-size:16px;font-weight:800;color:${netCol}">${net>=0?'+':''}$${(net/1e6).toFixed(2)}M</div>
+        <div style="font-size:11px;color:var(--muted)">${net>=0?'Bullish signal':'Bearish signal'}</div>
+      </div>`;
+    document.getElementById('insiderCard').style.display='';
+    document.getElementById('insiderStatus').textContent='✅ อัปเดต '+d.updated;
+  }).catch(e=>{document.getElementById('insiderStatus').textContent='❌ '+e;});
+}
+"""
+    return _base("insider", "Insider Trading", html, user, ticker_html, js)
 
 
 LOADING_PAGE = """<!DOCTYPE html>
