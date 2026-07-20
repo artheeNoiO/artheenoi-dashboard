@@ -34,14 +34,48 @@ GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
 MARKETAUX_KEY    = os.environ.get("MARKETAUX_KEY", "")
 OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY", "")   # system-wide key
+ANTHROPIC_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")    # Anthropic/Claude key
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 _ai_cache: dict  = {}   # username → {"text": ..., "ts": datetime}
 
 def _get_user_or_key(username: str) -> str:
-    """คืน OpenRouter key ของ user ก่อน ถ้าไม่มีจึงใช้ system key"""
+    """คืน AI key — ลำดับ: user key → system Anthropic → system OpenRouter"""
     user = get_user(username)
-    return (user or {}).get("openrouter_key", "") or OPENROUTER_KEY
+    user_key = (user or {}).get("openrouter_key", "") or (user or {}).get("ai_key", "")
+    return user_key or ANTHROPIC_KEY or OPENROUTER_KEY
+
+def _call_ai(key: str, prompt: str = None, max_tokens: int = 1400,
+             messages: list = None, system: str = None) -> str:
+    """เรียก AI ตาม key type: Anthropic (sk-ant-) หรือ OpenRouter
+    - prompt: ข้อความเดี่ยว (ถ้าไม่ส่ง messages)
+    - messages: list of {role, content} สำหรับ multi-turn
+    - system: system prompt (optional)
+    """
+    import requests as req
+    if messages is None:
+        messages = [{"role": "user", "content": prompt}]
+    body = {"model": "claude-haiku-4-5-20251001", "max_tokens": max_tokens, "messages": messages}
+    if system:
+        body["system"] = system
+    if key.startswith("sk-ant-"):
+        r = req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": key,
+                     "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json=body, timeout=40, verify=False
+        )
+        return r.json()["content"][0]["text"]
+    else:
+        r = req.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json",
+                     "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
+            json=body, timeout=40, verify=False
+        )
+        return r.json()["choices"][0]["message"]["content"]
 
 # ─── Password ────────────────────────────────────────────────────────────────
 
@@ -1474,23 +1508,12 @@ def api_chat():
     messages.append({"role": "user", "content": message})
 
     reply = ""
-    or_key = _get_user_or_key(uname)   # ใช้ key ของ user ก่อน
+    or_key = _get_user_or_key(uname)
     if or_key:
         try:
-            r = req.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {or_key}",
-                         "Content-Type": "application/json",
-                         "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
-                json={"model": "claude-haiku-4-5-20251001",
-                      "max_tokens": 700,
-                      "system": sys_prompt,
-                      "messages": messages},
-                timeout=25, verify=False
-            )
-            reply = r.json()["choices"][0]["message"]["content"]
+            reply = _call_ai(or_key, max_tokens=700, messages=messages, system=sys_prompt)
         except Exception as e:
-            log.warning(f"[Chat] OpenRouter error: {e}")
+            log.warning(f"[Chat] AI error: {e}")
             reply = "⚠️ เชื่อมต่อ AI ไม่ได้ตอนนี้ กรุณาลองใหม่"
     else:
         reply = _rule_based_reply(message, user, mkt, thb)
@@ -1663,17 +1686,20 @@ def api_news_ai_brief():
 
     uname  = session["username"]
     or_key = _get_user_or_key(uname)
+    lang   = request.args.get("lang", "th")      # 'th' หรือ 'en'
+    force  = request.args.get("force", "0") == "1"
 
-    # Return cache if < 30 min old
+    # Return cache if < 30 min old (separate cache per lang)
+    cache_key = f"brief_{lang}"
     with _news_brief_lock:
-        cached  = _news_brief_cache.get("brief")
-        updated = _news_brief_cache.get("updated")
-    if cached and updated and (datetime.now() - updated).seconds < 1800:
+        cached  = _news_brief_cache.get(cache_key)
+        updated = _news_brief_cache.get(f"updated_{lang}")
+    if not force and cached and updated and (datetime.now() - updated).seconds < 1800:
         return jsonify({"brief": cached, "from_cache": True,
                         "updated": updated.strftime("%H:%M")})
 
     if not or_key:
-        return jsonify({"error": "ไม่มี OpenRouter API key — ไปที่ Settings → ใส่ key ของตัวเอง หรือ Admin ต้องตั้งค่า OPENROUTER_API_KEY ใน Render", "brief": None})
+        return jsonify({"error": "ไม่มี API key — ไปที่ Render Environment ใส่ ANTHROPIC_API_KEY หรือ OPENROUTER_API_KEY", "brief": None})
 
     # ── Fetch headlines from multiple sources ──────────────────────────
     headlines = []
@@ -1714,18 +1740,42 @@ def api_news_ai_brief():
         except Exception:
             pass
 
-    if not headlines:
-        return jsonify({"error": "ดึงข่าวไม่ได้ — เครือข่ายขัดข้อง", "brief": None})
-
-    headlines_text = "\n".join(headlines[:28])
     today = datetime.now().strftime("%d %B %Y")
+    has_headlines = len(headlines) > 0
+    headlines_text = "\n".join(headlines[:28]) if has_headlines else ""
 
-    prompt = f"""คุณคือนักวิเคราะห์การเงินและเศรษฐกิจระดับโลก วันนี้คือ {today}
+    if lang == "en":
+        hl_section = f"Today's market headlines:\n{headlines_text}\n\n" if has_headlines else \
+                     "Note: Live headlines are unavailable. Use your knowledge up to your cutoff.\n\n"
+        prompt = f"""You are a world-class financial and economic analyst. Today is {today}.
 
-นี่คือ headlines ข่าวจากตลาดโลกวันนี้:
-{headlines_text}
+{hl_section}Analyze and summarize in ENGLISH, clear and concise. Reply ONLY in this format:
 
-วิเคราะห์และสรุปเป็นภาษาไทย ให้คนอ่านเข้าใจง่าย ใช้ภาษาชัดเจน ไม่ยาวเกินไป ตอบในรูปแบบนี้เท่านั้น:
+## Market Overview Today
+2-3 sentences summarizing the global market outlook today.
+
+## US Politics & Economic Policy
+How Fed policy / tariffs / politics affect the stock market.
+
+## Oil & Commodities
+Oil price direction, which sectors are affected, gold outlook.
+
+## War & Geopolitics
+Global conflicts and their impact on market risk.
+
+## Stocks / Gold / Crypto — Today's Outlook
+How each asset class is affected by today's events.
+
+## Investor Summary
+What to watch out for, where the opportunity is, risk level today.
+
+Keep each section to 2-3 sentences. Be concise and direct."""
+    else:
+        hl_section = f"นี่คือ headlines ข่าวจากตลาดโลกวันนี้:\n{headlines_text}\n\n" if has_headlines else \
+                     "หมายเหตุ: ไม่สามารถดึง headlines สดได้ขณะนี้ ให้ใช้ความรู้ที่มีวิเคราะห์แทน\n\n"
+        prompt = f"""คุณคือนักวิเคราะห์การเงินและเศรษฐกิจระดับโลก วันนี้คือ {today}
+
+{hl_section}วิเคราะห์และสรุปเป็นภาษาไทย ให้คนอ่านเข้าใจง่าย ใช้ภาษาชัดเจน ไม่ยาวเกินไป ตอบในรูปแบบนี้เท่านั้น:
 
 ## ภาพรวมตลาดวันนี้
 สรุปสั้นๆ 2-3 ประโยคว่าวันนี้ตลาดโลกเป็นอย่างไรโดยรวม
@@ -1748,28 +1798,19 @@ def api_news_ai_brief():
 ตอบเป็นภาษาไทยทั้งหมด แต่ละหัวข้อ 2-3 ประโยค กระชับ ตรงประเด็น"""
 
     try:
-        r = req.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {or_key}",
-                     "Content-Type": "application/json",
-                     "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
-            json={"model": "claude-haiku-4-5-20251001",
-                  "max_tokens": 1400,
-                  "messages": [{"role": "user", "content": prompt}]},
-            timeout=35, verify=False
-        )
-        brief = r.json()["choices"][0]["message"]["content"]
+        brief = _call_ai(or_key, prompt, max_tokens=1400)
         now = datetime.now()
         with _news_brief_lock:
-            _news_brief_cache["brief"]   = brief
-            _news_brief_cache["updated"] = now
+            _news_brief_cache[cache_key]         = brief
+            _news_brief_cache[f"updated_{lang}"] = now
+        note = "" if has_headlines else (" (ไม่มี headlines สด)" if lang == "th" else " (no live headlines)")
         return jsonify({"brief": brief, "from_cache": False,
-                        "updated": now.strftime("%H:%M")})
+                        "updated": now.strftime("%H:%M") + note})
     except Exception as e:
         log.warning(f"[NewsBrief] {e}")
         with _news_brief_lock:
-            old = _news_brief_cache.get("brief")
-            old_ts = _news_brief_cache.get("updated")
+            old    = _news_brief_cache.get(cache_key)
+            old_ts = _news_brief_cache.get(f"updated_{lang}")
         if old:
             return jsonify({"brief": old, "from_cache": True,
                             "updated": old_ts.strftime("%H:%M") if old_ts else "—",

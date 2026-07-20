@@ -1835,34 +1835,38 @@ def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
     risk = _risk_score(macro, news)
     risk_col = "var(--red)" if risk >= 70 else "var(--gold)" if risk >= 45 else "var(--green)"
 
-    vix  = macro.get("vix", "—")
-    yc   = macro.get("yield_curve", "—")
-    rate = macro.get("fed_rate", "—")
-    dxy  = macro.get("dxy", "—")
-
     def _f(v):
         try: return float(v)
         except: return 0.0
+    def _fmt(v, dec=2):
+        try: return f"{float(v):.{dec}f}"
+        except: return "—"
+
+    vix  = _fmt(macro.get("vix"),  2)
+    yc   = _fmt(macro.get("yield_curve"), 2)
+    rate = _fmt(macro.get("fed_rate"), 2)
+    dxy  = _fmt(macro.get("dxy"),  2)
 
     html = f"""
 <!-- ── AI News Brief ──────────────────────────────────────────── -->
 <div class="card" style="margin-bottom:20px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <div>
-      <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">AI Analysis</div>
-      <div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px">วิเคราะห์ข่าวโลกวันนี้</div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase" data-en="AI Analysis" data-th="AI วิเคราะห์">AI Analysis</div>
+      <div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px" data-en="Today's World News Analysis" data-th="วิเคราะห์ข่าวโลกวันนี้">Today's World News Analysis</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <span id="briefTs" style="font-size:10px;color:var(--muted)"></span>
-      <button onclick="loadBrief(true)" class="btn btn-ghost btn-sm" id="briefBtn">รีเฟรช</button>
+      <button onclick="loadBrief(true)" class="btn btn-ghost btn-sm" id="briefBtn" data-en="Refresh" data-th="รีเฟรช">Refresh</button>
     </div>
   </div>
-  <div id="briefLoading" style="color:var(--muted);font-size:13px;padding:20px 0;text-align:center;display:none">
-    กำลังวิเคราะห์ข่าว... อาจใช้เวลา 10-20 วินาที
+  <div id="briefLoading" style="color:var(--muted);font-size:13px;padding:20px 0;text-align:center;display:none"
+       data-en="Analyzing news... may take 10-20 seconds" data-th="กำลังวิเคราะห์ข่าว... อาจใช้เวลา 10-20 วินาที">
+    Analyzing news... may take 10-20 seconds
   </div>
   <div id="briefError" style="color:var(--red);font-size:12px;display:none"></div>
   <div id="briefContent" style="font-size:13px;line-height:1.85;color:var(--mid)">
-    <div style="color:var(--muted);text-align:center;padding:16px 0">คลิก <b style="color:var(--text)">รีเฟรช</b> เพื่อให้ AI วิเคราะห์ข่าววันนี้</div>
+    <div style="color:var(--muted);text-align:center;padding:16px 0" data-en="Click <b>Refresh</b> to analyze today's news with AI" data-th="คลิก รีเฟรช เพื่อให้ AI วิเคราะห์ข่าววันนี้">Click <b style="color:var(--text)">Refresh</b> to analyze today's news with AI</div>
   </div>
 </div>
 
@@ -1923,33 +1927,37 @@ function loadBrief(force=false){{
   const btn     = document.getElementById('briefBtn');
   const ts      = document.getElementById('briefTs');
 
+  const lang = localStorage.getItem('lang') || 'en';
   loading.style.display = 'block';
   errDiv.style.display  = 'none';
   btn.disabled = true;
-  btn.textContent = 'กำลังโหลด...';
+  btn.textContent = lang === 'th' ? 'กำลังโหลด...' : 'Loading...';
 
-  fetch('/api/news-ai-brief' + (force ? '?force=1' : ''))
+  let url = '/api/news-ai-brief?lang=' + lang;
+  if (force) url += '&force=1';
+  fetch(url)
     .then(r=>r.json())
     .then(d=>{{
       loading.style.display = 'none';
       btn.disabled = false;
-      btn.textContent = 'รีเฟรช';
+      btn.dataset.en = 'Refresh'; btn.dataset.th = 'รีเฟรช';
+      btn.textContent = lang === 'th' ? 'รีเฟรช' : 'Refresh';
       if(d.brief){{
         content.innerHTML = parseBrief(d.brief);
-        ts.textContent = 'อัปเดต ' + (d.updated||'') + (d.from_cache ? ' (แคช)' : '');
+        ts.textContent = (lang==='th'?'อัปเดต ':'Updated ') + (d.updated||'') + (d.from_cache ? (lang==='th' ? ' (แคช)' : ' (cached)') : '');
         if(d.warn) errDiv.style.display='block', errDiv.textContent=d.warn;
       }} else {{
         errDiv.style.display = 'block';
         errDiv.textContent = d.error || 'เกิดข้อผิดพลาด';
-        content.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0">ไม่สามารถโหลดการวิเคราะห์ได้</div>';
+        content.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0">' + (lang==='th'?'ไม่สามารถโหลดการวิเคราะห์ได้':'Unable to load analysis') + '</div>';
       }}
     }})
     .catch(e=>{{
       loading.style.display = 'none';
       btn.disabled = false;
-      btn.textContent = 'รีเฟรช';
+      btn.textContent = lang === 'th' ? 'รีเฟรช' : 'Refresh';
       errDiv.style.display = 'block';
-      errDiv.textContent = 'เครือข่ายขัดข้อง';
+      errDiv.textContent = lang === 'th' ? 'เครือข่ายขัดข้อง' : 'Network error';
     }});
 }}
 
