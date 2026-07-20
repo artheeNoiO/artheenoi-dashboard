@@ -2407,12 +2407,37 @@ def insider():
 @app.route("/api/gold-spot")
 @login_required
 def api_gold_spot():
-    """Real-time gold — XAU/USD (metals.live/yfinance) + Thai prices (goldtraders.or.th)."""
+    """Real-time gold — XAU/USD + Thai prices combined."""
     try:
         _, _, thb = _get_mkt()
         data = _fetch_gold_live(thb or 34.0)
         thai = _fetch_gold_thai()
         return jsonify({"ok": True, **data, **thai})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/gold-xau")
+@login_required
+def api_gold_xau():
+    """Fast XAU/USD only — for 5-second auto-refresh (no Thai scrape)."""
+    try:
+        _, _, thb = _get_mkt()
+        data = _fetch_gold_live(thb or 34.0)
+        return jsonify({"ok": True, **data})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/gold-thai")
+@login_required
+def api_gold_thai():
+    """Thai gold prices only — from goldtraders.or.th scrape."""
+    try:
+        data = _fetch_gold_thai()
+        if not data:
+            return jsonify({"ok": False, "error": "ดึงราคาทองไทยไม่ได้"})
+        return jsonify({"ok": True, **data})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

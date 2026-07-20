@@ -1338,33 +1338,37 @@ def gold_page(user: dict, market_data: dict) -> str:
 </div>
 """
     gold_js = """
-function refreshGold(btn){
-  if(!btn) btn=document.querySelector('[onclick^="refreshGold"]');
-  btn.disabled=true;
-  document.getElementById('goldRefreshStatus').textContent='⏳ กำลังดึงราคา…';
-  fetch('/api/gold-spot').then(r=>r.json()).then(d=>{
-    btn.disabled=false;
-    if(!d.ok){document.getElementById('goldRefreshStatus').textContent='❌ '+(d.error||'Error');return;}
-    // XAU/USD
+const _gfmt=(n,dec=2)=>n.toLocaleString('th-TH',{minimumFractionDigits:dec,maximumFractionDigits:dec});
+
+function refreshGold(){
+  fetch('/api/gold-xau').then(r=>r.json()).then(d=>{
+    if(!d.ok) return;
     const el=document.getElementById('goldPrice');
-    const fmt=(n,dec=2)=>n.toLocaleString('th-TH',{minimumFractionDigits:dec,maximumFractionDigits:dec});
-    if(el && d.price) el.textContent='$'+fmt(d.price);
+    if(el && d.price) el.textContent='$'+_gfmt(d.price);
     const sd=document.getElementById('goldSrcDate');
     if(sd) sd.textContent=d.date||'';
     document.getElementById('goldRefreshStatus').textContent=
-      '✅ '+d.date+' · $'+fmt(d.price)+'/oz · ฿'+fmt(d.price_thb)+'/oz ['+d.source+']';
-    // Thai gold
-    if(d.thai_bar_sell){
-      const upd=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent='฿'+fmt(v,2);};
-      upd('thaiBarBuy',    d.thai_bar_buy);
-      upd('thaiBarSell',   d.thai_bar_sell);
-      upd('thaiOrnasBuy',  d.thai_orna_buy);
-      upd('thaiOrnasSell', d.thai_orna_sell);
-      const td=document.getElementById('thaiGoldDate');
-      if(td) td.textContent=d.thai_date||'';
-    }
-  }).catch(e=>{document.getElementById('goldRefreshStatus').textContent='❌ '+e;btn.disabled=false;});
+      '🟢 '+d.date+' · $'+_gfmt(d.price)+'/oz (฿'+_gfmt(d.price_thb,0)+'/oz) ['+d.source+']';
+  }).catch(()=>{});
 }
+
+function refreshThai(){
+  fetch('/api/gold-thai').then(r=>r.json()).then(d=>{
+    if(!d.ok||!d.thai_bar_sell) return;
+    const upd=(id,v)=>{const e=document.getElementById(id);if(e&&v)e.textContent='฿'+_gfmt(v,2);};
+    upd('thaiBarBuy',    d.thai_bar_buy);
+    upd('thaiBarSell',   d.thai_bar_sell);
+    upd('thaiOrnasBuy',  d.thai_orna_buy);
+    upd('thaiOrnasSell', d.thai_orna_sell);
+    const td=document.getElementById('thaiGoldDate');
+    if(td) td.textContent=d.thai_date||'';
+  }).catch(()=>{});
+}
+
+// XAU/USD refresh ทุก 5 วิ, Thai gold ทุก 30 วิ
+refreshGold(); refreshThai();
+setInterval(refreshGold, 5000);
+setInterval(refreshThai, 30000);
 """
     return _base("gold", "Gold Analysis", html, user, "", gold_js)
 
