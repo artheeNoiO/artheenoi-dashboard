@@ -29,7 +29,7 @@ app.permanent_session_lifetime = timedelta(days=30)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
-ETFS   = ["QQQ", "IVV", "DIA"]
+ETFS   = ["QQQ", "IVV", "DIA", "^VIX", "DX-Y.NYB", "CL=F", "^TNX"]
 GOLD   = "GC=F"
 CRYPTO = "BTC-USD"
 MARKETAUX_KEY    = os.environ.get("MARKETAUX_KEY", "")
@@ -267,11 +267,22 @@ def _do_market_refresh():
         macro = {}
         try:
             from at_analysis import fetch_macro
-            macro = fetch_macro()
+            macro = fetch_macro() or {}
         except Exception as e:
-            log.warning(f"[Macro] {e}")
+            log.warning(f"[Macro] fetch_macro failed: {e}")
 
-        qqq_chg = (mkt.get("QQQ") or {}).get("change_pct", 0)
+        # Fallback: extract macro indicators from already-fetched market data
+        def _price(sym): return (mkt.get(sym) or {}).get("price") or None
+        if not macro.get("vix"):   macro["vix"]   = _price("^VIX")
+        if not macro.get("dxy"):   macro["dxy"]   = _price("DX-Y.NYB")
+        if not macro.get("oil"):   macro["oil"]   = _price("CL=F")
+        if not macro.get("gold"):  macro["gold"]  = _price("GC=F")
+        if not macro.get("tnx"):   macro["tnx"]   = _price("^TNX")
+        # Format nicely
+        for k in ("vix","dxy","oil","gold","tnx"):
+            if macro.get(k): macro[k] = round(float(macro[k]), 2)
+
+        qqq_chg = (mkt.get("QQQ") or {}).get("change_pct", 0) or (mkt.get("QQQ") or {}).get("chg", 0)
         macro.setdefault("qqq_chg", qqq_chg)
         macro.setdefault("mood", "BULL" if qqq_chg > 0.5 else "BEAR" if qqq_chg < -0.5 else "NEUTRAL")
 
@@ -1662,7 +1673,7 @@ def api_news_ai_brief():
                         "updated": updated.strftime("%H:%M")})
 
     if not or_key:
-        return jsonify({"error": "ไม่มี OpenRouter API key — ใส่ key ใน Settings ก่อน", "brief": None})
+        return jsonify({"error": "ไม่มี OpenRouter API key — ไปที่ Settings → ใส่ key ของตัวเอง หรือ Admin ต้องตั้งค่า OPENROUTER_API_KEY ใน Render", "brief": None})
 
     # ── Fetch headlines from multiple sources ──────────────────────────
     headlines = []
