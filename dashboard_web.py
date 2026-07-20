@@ -88,11 +88,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--text);border-bottom-color:var(--teal)}
 
+/* ── Scrollbar global ── */
+*::-webkit-scrollbar{width:5px;height:5px}
+*::-webkit-scrollbar-track{background:#0d0d0d}
+*::-webkit-scrollbar-thumb{background:#2e2e2e;border-radius:2px}
+*::-webkit-scrollbar-thumb:hover{background:#444444}
+*{scrollbar-width:thin;scrollbar-color:#2e2e2e #0d0d0d}
+
 /* ── Content ── */
 .content{flex:1;overflow-y:auto;padding:20px}
-.content::-webkit-scrollbar{width:6px}
-.content::-webkit-scrollbar-track{background:transparent}
-.content::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── Cards ── */
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:18px}
