@@ -1804,6 +1804,10 @@ def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
     rate = macro.get("fed_rate", "—")
     dxy  = macro.get("dxy", "—")
 
+    def _f(v):
+        try: return float(v)
+        except: return 0.0
+
     html = f"""
 <!-- ── AI News Brief ──────────────────────────────────────────── -->
 <div class="card" style="margin-bottom:20px">
@@ -1835,8 +1839,8 @@ def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
   </div>
   <div class="card-sm" style="text-align:center">
     <div class="card-hdr">VIX</div>
-    <div style="font-size:24px;font-weight:900;color:{'var(--red)' if float(vix or 0)>25 else 'var(--green)'}">{vix}</div>
-    <div style="font-size:10px;color:var(--muted);margin-top:4px">{'สูง — กลัว' if float(vix or 0)>25 else 'ต่ำ — สงบ' if float(vix or 0)<15 else 'ปานกลาง'}</div>
+    <div style="font-size:24px;font-weight:900;color:{'var(--red)' if _f(vix)>25 else 'var(--green)'}">{vix}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">{'สูง — กลัว' if _f(vix)>25 else 'ต่ำ — สงบ' if _f(vix)<15 else 'ปานกลาง'}</div>
   </div>
   <div class="card-sm" style="text-align:center">
     <div class="card-hdr">Fed Rate</div>
