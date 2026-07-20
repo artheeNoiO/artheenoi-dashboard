@@ -1797,22 +1797,7 @@ def _risk_score(macro: dict, news: list) -> int:
 def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
     news = _fetch_news(marketaux_key)
     risk = _risk_score(macro, news)
-    risk_col = "#ef4444" if risk >= 70 else "#f59e0b" if risk >= 45 else "#22c55e"
-    risk_label = "High Risk ⚠️" if risk >= 70 else "Medium Risk 🟡" if risk >= 45 else "Low Risk 🟢"
-
-    news_html = ""
-    for n in news:
-        sent = n.get("sentiment", 0)
-        s_col = "#22c55e" if sent > 0.1 else "#ef4444" if sent < -0.1 else "#9999a8"
-        s_lbl = "Positive" if sent > 0.1 else "Negative" if sent < -0.1 else "Neutral"
-        news_html += f"""
-        <div class="card-sm" style="border-left:3px solid {s_col};margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-            <a href="{n['link']}" target="_blank" style="font-size:13px;font-weight:600;color:var(--text);text-decoration:none;line-height:1.4;flex:1">{n['title']}</a>
-            <span style="font-size:10px;font-weight:700;color:{s_col};white-space:nowrap">{s_lbl}</span>
-          </div>
-          <div style="margin-top:5px;font-size:10px;color:var(--muted)">{n['source']} · {n['date']}</div>
-        </div>"""
+    risk_col = "var(--red)" if risk >= 70 else "var(--gold)" if risk >= 45 else "var(--green)"
 
     vix  = macro.get("vix", "—")
     yc   = macro.get("yield_curve", "—")
@@ -1820,59 +1805,117 @@ def news_page(user: dict, macro: dict, marketaux_key: str = "") -> str:
     dxy  = macro.get("dxy", "—")
 
     html = f"""
-<div class="g4" style="margin-bottom:16px">
-  <div class="card-sm" style="border-top:3px solid {risk_col};grid-column:span 1">
-    <div class="card-hdr">Daily Risk Score</div>
-    <div style="font-size:36px;font-weight:900;color:{risk_col}">{risk}</div>
-    <div style="font-size:12px;font-weight:700;color:{risk_col};margin-top:4px">{risk_label}</div>
-    <div class="pbar" style="margin-top:10px"><div class="pbar-fill" style="width:{risk}%;background:{risk_col}"></div></div>
+<!-- ── AI News Brief ──────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">AI Analysis</div>
+      <div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px">วิเคราะห์ข่าวโลกวันนี้</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="briefTs" style="font-size:10px;color:var(--muted)"></span>
+      <button onclick="loadBrief(true)" class="btn btn-ghost btn-sm" id="briefBtn">รีเฟรช</button>
+    </div>
   </div>
-  <div class="card-sm">
-    <div class="card-hdr">VIX (Fear Index)</div>
-    <div class="stat-val" style="color:{'#ef4444' if float(vix or 0)>25 else '#22c55e'}">{vix}</div>
-    <div class="stat-lbl">{'High fear' if float(vix or 0)>25 else 'Low fear' if float(vix or 0)<15 else 'Moderate'}</div>
+  <div id="briefLoading" style="color:var(--muted);font-size:13px;padding:20px 0;text-align:center;display:none">
+    กำลังวิเคราะห์ข่าว... อาจใช้เวลา 10-20 วินาที
   </div>
-  <div class="card-sm">
-    <div class="card-hdr">Fed Rate</div>
-    <div class="stat-val blue-c">{rate}%</div>
-    <div class="stat-lbl">Yield Curve: {yc}</div>
-  </div>
-  <div class="card-sm">
-    <div class="card-hdr">DXY (USD Index)</div>
-    <div class="stat-val" style="color:var(--purple)">{dxy}</div>
-    <div class="stat-lbl">Dollar strength</div>
+  <div id="briefError" style="color:var(--red);font-size:12px;display:none"></div>
+  <div id="briefContent" style="font-size:13px;line-height:1.85;color:var(--mid)">
+    <div style="color:var(--muted);text-align:center;padding:16px 0">คลิก <b style="color:var(--text)">รีเฟรช</b> เพื่อให้ AI วิเคราะห์ข่าววันนี้</div>
   </div>
 </div>
 
-<div class="g2">
-  <div class="card">
-    <div class="card-hdr" style="margin-bottom:12px">📰 Market News & Sentiment</div>
-    {news_html or '<div style="color:var(--muted)">ดึงข่าวไม่ได้ (เช็ค internet)</div>'}
+<!-- ── Market Pulse ───────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+  <div class="card-sm" style="text-align:center">
+    <div class="card-hdr">Risk Score</div>
+    <div style="font-size:30px;font-weight:900;color:{risk_col}">{risk}</div>
+    <div class="pbar" style="margin-top:8px"><div class="pbar-fill" style="width:{risk}%;background:{risk_col}"></div></div>
   </div>
-  <div class="card">
-    <div class="card-hdr">📊 Risk Factors</div>
-    <div style="font-size:13px;line-height:2.1;color:var(--mid)">
-      <div style="display:flex;justify-content:space-between">
-        <span>VIX Level</span>
-        <b style="color:{'#ef4444' if float(vix or 0)>25 else '#22c55e'}">{'+20 risk' if float(vix or 0)>30 else '+10 risk' if float(vix or 0)>20 else '−10 risk' if float(vix or 0)<15 else 'neutral'}</b>
-      </div>
-      <div style="display:flex;justify-content:space-between">
-        <span>Yield Curve</span>
-        <b style="color:{'#ef4444' if float(yc or 0)<0 else '#22c55e'}">{'Inverted ⚠️ +15' if float(yc or 0)<0 else 'Normal −5'}</b>
-      </div>
-      <div style="display:flex;justify-content:space-between">
-        <span>News Sentiment</span>
-        <b style="color:var(--mid)">Calculated from {len(news)} articles</b>
-      </div>
-    </div>
-    <div style="margin-top:16px;padding:12px;background:var(--card2);border-radius:8px;font-size:12px;color:var(--mid);line-height:1.7">
-      <b style="color:var(--text)">Risk Score guide:</b><br>
-      🟢 0-44 = ปลอดภัย ตลาดสงบ<br>
-      🟡 45-69 = ระวังปานกลาง<br>
-      🔴 70+ = Risk สูง ลด position
-    </div>
+  <div class="card-sm" style="text-align:center">
+    <div class="card-hdr">VIX</div>
+    <div style="font-size:24px;font-weight:900;color:{'var(--red)' if float(vix or 0)>25 else 'var(--green)'}">{vix}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">{'สูง — กลัว' if float(vix or 0)>25 else 'ต่ำ — สงบ' if float(vix or 0)<15 else 'ปานกลาง'}</div>
+  </div>
+  <div class="card-sm" style="text-align:center">
+    <div class="card-hdr">Fed Rate</div>
+    <div style="font-size:24px;font-weight:900;color:var(--text)">{rate}%</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Yield Curve {yc}</div>
+  </div>
+  <div class="card-sm" style="text-align:center">
+    <div class="card-hdr">DXY</div>
+    <div style="font-size:24px;font-weight:900;color:var(--text)">{dxy}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Dollar Index</div>
   </div>
 </div>
+
+<!-- ── Raw Headlines ─────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-hdr" style="margin-bottom:12px">Headlines วันนี้</div>
+  {''.join(f"""<div style="padding:9px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+    <span style="font-size:12px;color:var(--mid);line-height:1.5">{n['title']}</span>
+    <span style="font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0">{n['source']}</span>
+  </div>""" for n in news) or '<div style="color:var(--muted);font-size:12px">ดึงข่าวไม่ได้</div>'}
+</div>
+
+<script>
+function parseBrief(text){{
+  // Convert ## headers and plain text to styled HTML
+  const lines = text.split('\\n');
+  let html = '';
+  for(const line of lines){{
+    const trimmed = line.trim();
+    if(!trimmed) {{ html += '<div style="height:8px"></div>'; continue; }}
+    if(trimmed.startsWith('## ')){{
+      html += `<div style="font-size:11px;font-weight:700;color:var(--text);letter-spacing:1.5px;text-transform:uppercase;margin:18px 0 6px;border-bottom:1px solid var(--border);padding-bottom:6px">${{trimmed.slice(3)}}</div>`;
+    }} else {{
+      html += `<div style="color:var(--mid);font-size:13px;line-height:1.8;margin-bottom:2px">${{trimmed}}</div>`;
+    }}
+  }}
+  return html;
+}}
+
+function loadBrief(force=false){{
+  const content = document.getElementById('briefContent');
+  const loading = document.getElementById('briefLoading');
+  const errDiv  = document.getElementById('briefError');
+  const btn     = document.getElementById('briefBtn');
+  const ts      = document.getElementById('briefTs');
+
+  loading.style.display = 'block';
+  errDiv.style.display  = 'none';
+  btn.disabled = true;
+  btn.textContent = 'กำลังโหลด...';
+
+  fetch('/api/news-ai-brief' + (force ? '?force=1' : ''))
+    .then(r=>r.json())
+    .then(d=>{{
+      loading.style.display = 'none';
+      btn.disabled = false;
+      btn.textContent = 'รีเฟรช';
+      if(d.brief){{
+        content.innerHTML = parseBrief(d.brief);
+        ts.textContent = 'อัปเดต ' + (d.updated||'') + (d.from_cache ? ' (แคช)' : '');
+        if(d.warn) errDiv.style.display='block', errDiv.textContent=d.warn;
+      }} else {{
+        errDiv.style.display = 'block';
+        errDiv.textContent = d.error || 'เกิดข้อผิดพลาด';
+        content.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0">ไม่สามารถโหลดการวิเคราะห์ได้</div>';
+      }}
+    }})
+    .catch(e=>{{
+      loading.style.display = 'none';
+      btn.disabled = false;
+      btn.textContent = 'รีเฟรช';
+      errDiv.style.display = 'block';
+      errDiv.textContent = 'เครือข่ายขัดข้อง';
+    }});
+}}
+
+// Auto-load on page open
+loadBrief();
+</script>
 """
     return _base("news", "News & Risk", html, user, "", "")
 

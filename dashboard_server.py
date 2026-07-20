@@ -204,6 +204,9 @@ _mkt_cache = {"data": None, "macro": None, "thb": 35.0,
 _gen_lock  = threading.Lock()   # ป้องกัน generate() race condition
 _refreshing = threading.Event()
 
+_news_brief_lock  = threading.Lock()
+_news_brief_cache = {"brief": None, "updated": None}
+
 def _enrich_with_closes(mkt: dict, syms: list):
     """Fetch 60-day closes + 52W high/low via yfinance and merge into mkt dict."""
     try:
@@ -921,50 +924,57 @@ _ADMIN_TPL = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — ArtheeNoi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#090d16;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:24px}
-.wrap{max-width:800px;margin:0 auto}
-.nav{display:flex;gap:12px;margin-bottom:24px}
-.nav a{color:#64748b;text-decoration:none;font-size:13px}.nav a:hover{color:#e2e8f0}
-h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.sub{color:#64748b;font-size:13px;margin-bottom:28px}
-.card{background:#0f1623;border:1px solid #1c2a3a;border-radius:12px;padding:24px;margin-bottom:20px}
-h2{font-size:14px;font-weight:700;color:#d97757;text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+:root{--bg:#080808;--bg2:#111111;--bg3:#1a1a1a;--border:#2a2a2a;--text:#f0f0f0;--mid:#888;--muted:#555;--green:#4caf50;--red:#ef5350}
+body{min-height:100vh;background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',system-ui,sans-serif;padding:32px 24px}
+*::-webkit-scrollbar{width:5px;height:5px}
+*::-webkit-scrollbar-track{background:#0d0d0d}
+*::-webkit-scrollbar-thumb{background:#2e2e2e;border-radius:2px}
+.wrap{max-width:860px;margin:0 auto}
+.nav{display:flex;gap:20px;margin-bottom:28px;border-bottom:1px solid var(--border);padding-bottom:16px}
+.nav a{color:var(--muted);text-decoration:none;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px}.nav a:hover{color:var(--text)}
+h1{font-size:22px;font-weight:900;letter-spacing:-0.5px;margin-bottom:4px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:28px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:24px;margin-bottom:16px}
+h2{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:2px;margin-bottom:16px}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;padding:0 12px 8px}
-td{padding:10px 12px;border-bottom:1px solid #1c2a3a;font-size:13px;vertical-align:middle}
+th{text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:0 12px 10px}
+td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
 tr:last-child td{border-bottom:none}
-.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase}
-.admin-badge{background:#d9775722;color:#d97757;border:1px solid #d9775766}
-.user-badge{background:#3b82f622;color:#3b82f6;border:1px solid #3b82f666}
-input[type=text],input[type=password]{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8f0;font-size:13px;padding:7px 12px}
-input:focus{border-color:#d97757;outline:none}
-select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8f0;font-size:13px;padding:7px 12px}
-.btn{padding:7px 16px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
-.btn-primary{background:#d97757;color:#fff}.btn-primary:hover{background:#c96040}
-.btn-danger{background:#ef444422;color:#ef4444;border:1px solid #ef444466}.btn-danger:hover{background:#ef444444}
-.msg{padding:10px 14px;border-radius:7px;font-size:13px;margin-bottom:16px}
-.msg.ok{background:#10b98122;border:1px solid #10b98166;color:#10b981}
-.msg.err{background:#ef444422;border:1px solid #ef444466;color:#ef4444}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:2px;text-transform:uppercase;letter-spacing:1px}
+.admin-badge{background:rgba(255,255,255,0.08);color:var(--text);border:1px solid var(--border)}
+.user-badge{background:transparent;color:var(--mid);border:1px solid var(--border)}
+input[type=text],input[type=password]{background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:13px;padding:7px 12px;font-family:inherit;outline:none;transition:.12s}
+input:focus{border-color:#666}
+select{background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:13px;padding:7px 12px;font-family:inherit;outline:none}
+.btn{padding:7px 18px;border:none;border-radius:3px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;font-family:inherit;transition:.12s}
+.btn-primary{background:var(--text);color:var(--bg)}.btn-primary:hover{background:#fff}
+.btn-danger{background:transparent;color:var(--red);border:1px solid #ef535044}.btn-danger:hover{background:#ef535011}
+.btn-seed{background:transparent;color:var(--text);border:1px solid var(--border)}.btn-seed:hover{border-color:#888}
+.msg{padding:10px 14px;border-radius:3px;font-size:12px;margin-bottom:16px}
+.msg.ok{background:#4caf5011;border:1px solid #4caf5044;color:var(--green)}
+.msg.err{background:#ef535011;border:1px solid #ef535044;color:var(--red)}
 .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-.fld label{display:block;color:#94a3b8;font-size:11px;text-transform:uppercase;margin-bottom:5px}
+.fld label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="nav">
-    <a href="/stocks">← Dashboard</a>
+    <a href="/home">← Dashboard</a>
     <a href="/settings">Settings</a>
     <a href="/logout">Logout</a>
   </div>
-  <h1>👑 Admin Panel</h1>
+  <h1>Admin Panel</h1>
   <p class="sub">จัดการบัญชีผู้ใช้ทั้งหมด</p>
   {% if msg %}<div class="msg {{ msg_type }}">{{ msg }}</div>{% endif %}
 
   <!-- User list -->
   <div class="card">
-    <h2>👥 ผู้ใช้ทั้งหมด</h2>
+    <h2>ผู้ใช้ทั้งหมด</h2>
     <table>
       <thead><tr><th>Username</th><th>ชื่อ</th><th>Role</th><th>Portfolio</th><th>อัปเดตล่าสุด</th><th></th></tr></thead>
       <tbody>
@@ -993,7 +1003,7 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
 
   <!-- Add User -->
   <div class="card">
-    <h2>➕ เพิ่มผู้ใช้ใหม่</h2>
+    <h2>เพิ่มผู้ใช้ใหม่</h2>
     <form method="POST" action="/admin/create">
       <div class="row">
         <div class="fld"><label>Username</label><input type="text" name="username" placeholder="friend1" required></div>
@@ -1012,7 +1022,7 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
 
   <!-- Reset Password -->
   <div class="card">
-    <h2>🔑 Reset Password</h2>
+    <h2>Reset Password</h2>
     <form method="POST" action="/admin/reset-password">
       <div class="row">
         <div class="fld"><label>Username</label>
@@ -1028,7 +1038,7 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
 
   <!-- Invite Codes -->
   <div class="card">
-    <h2>🔗 Invite Links (Self-Registration)</h2>
+    <h2>Invite Links</h2>
     <p style="font-size:12px;color:#64748b;margin-bottom:14px">สร้างลิงก์เชิญให้เพื่อน — ใช้ได้ครั้งเดียว</p>
     <button type="button" class="btn btn-primary" onclick="genInvite()">🔗 สร้าง Invite Link ใหม่</button>
     <div id="inviteResult" style="margin-top:12px;font-size:13px"></div>
@@ -1052,18 +1062,18 @@ select{background:#111d2e;border:1px solid #243040;border-radius:6px;color:#e2e8
   </div>
 
   <!-- Persist Users -->
-  <div class="card" style="border-color:#FFD70044">
-    <h2 style="color:#FFD700">💾 บันทึกบัญชีให้คงอยู่หลัง Redeploy</h2>
-    <p style="font-size:12px;color:#94a3b8;margin-bottom:14px">Render free tier ไม่มี persistent disk — ทุกครั้งที่ deploy ใหม่ บัญชีจะหาย<br>
-    กดปุ่มนี้หลังสร้าง/ลบบัญชี → copy ค่าไปวางใน Render Environment Variables</p>
-    <a href="/admin/export-seed" target="_blank" class="btn btn-primary" style="background:#FFD700;color:#131722;text-decoration:none;display:inline-block">
-      📋 Export USERS_SEED (กันบัญชีหาย)
+  <div class="card" style="border-color:#555">
+    <h2>บันทึกบัญชีกัน Redeploy</h2>
+    <p style="font-size:12px;color:var(--mid);margin-bottom:14px">Render free tier ไม่มี persistent disk — ทุกครั้งที่ deploy ใหม่ บัญชีจะหาย<br>
+    <b style="color:var(--text)">สร้าง/ลบ user แล้ว → กดปุ่มนี้</b> → copy ค่า → วางใน Render → Save</p>
+    <a href="/admin/export-seed" target="_blank" class="btn btn-seed" style="text-decoration:none;display:inline-block">
+      Export USERS_SEED
     </a>
   </div>
 
   <!-- Market Cache Status -->
   <div class="card">
-    <h2>📡 สถานะข้อมูลตลาด</h2>
+    <h2>สถานะข้อมูลตลาด</h2>
     <table><tbody>
       <tr><td style="color:#94a3b8;width:160px">อัปเดตล่าสุด</td><td>{{ mkt_updated or 'ยังไม่มีข้อมูล' }}</td></tr>
       <tr><td style="color:#94a3b8">จำนวน Symbols</td><td>{{ mkt_count }}</td></tr>
@@ -1080,11 +1090,11 @@ async function genInvite() {
   const d = await r.json();
   const box = document.getElementById('inviteResult');
   const url = window.location.origin + d.url;
-  box.innerHTML = '<div style="background:#0f1623;border:1px solid #1c2a3a;border-radius:8px;padding:12px;margin-top:8px">'
-    + '<div style="font-size:11px;color:#64748b;margin-bottom:6px">ลิงก์ใหม่ (ใช้ได้ 1 ครั้ง):</div>'
+  box.innerHTML = '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;padding:12px;margin-top:8px">'
+    + '<div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">ลิงก์ใหม่ (ใช้ได้ 1 ครั้ง)</div>'
     + '<div style="display:flex;gap:8px;align-items:center">'
-    + '<code style="flex:1;font-size:12px;color:#10b981;word-break:break-all">' + url + '</code>'
-    + '<button onclick="navigator.clipboard.writeText(\''+url+'\').then(()=>this.textContent=\'✓\')" style="background:#d97757;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Copy</button>'
+    + '<code style="flex:1;font-size:12px;color:#f0f0f0;word-break:break-all">' + url + '</code>'
+    + '<button onclick="navigator.clipboard.writeText(\''+url+'\').then(()=>this.textContent=\'✓\')" style="background:#f0f0f0;color:#080808;border:none;border-radius:3px;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px">Copy</button>'
     + '</div></div>';
   setTimeout(() => location.reload(), 3000);
 }
@@ -1601,6 +1611,128 @@ def api_ticker():
         items.append({"sym": sym, "label": label,
                       "price": round(d["price"], 2), "chg": round(chg, 2)})
     return jsonify(items)
+
+
+@app.route("/api/news-ai-brief")
+@login_required
+def api_news_ai_brief():
+    import xml.etree.ElementTree as ET
+    import requests as req
+
+    uname  = session["username"]
+    or_key = _get_user_or_key(uname)
+
+    # Return cache if < 30 min old
+    with _news_brief_lock:
+        cached  = _news_brief_cache.get("brief")
+        updated = _news_brief_cache.get("updated")
+    if cached and updated and (datetime.now() - updated).seconds < 1800:
+        return jsonify({"brief": cached, "from_cache": True,
+                        "updated": updated.strftime("%H:%M")})
+
+    if not or_key:
+        return jsonify({"error": "ไม่มี OpenRouter API key — ใส่ key ใน Settings ก่อน", "brief": None})
+
+    # ── Fetch headlines from multiple sources ──────────────────────────
+    headlines = []
+    rss_topics = [
+        ("^GSPC",    "S&P 500 / ตลาดหุ้น"),
+        ("GC=F",     "ทองคำ"),
+        ("BTC-USD",  "Bitcoin / คริปโต"),
+        ("CL=F",     "น้ำมันดิบ"),
+        ("^TNX",     "พันธบัตรสหรัฐ / Fed"),
+        ("EURUSD=X", "ค่าเงิน EUR/USD"),
+        ("DX-Y.NYB", "ดัชนีดอลลาร์ DXY"),
+    ]
+    ua = {"User-Agent": "Mozilla/5.0"}
+    for sym, label in rss_topics:
+        try:
+            r = req.get(
+                f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={sym}&region=US&lang=en-US",
+                headers=ua, timeout=6, verify=False
+            )
+            root = ET.fromstring(r.text)
+            for item in root.findall(".item")[:4]:
+                t = (item.findtext("title") or "").strip()
+                if t:
+                    headlines.append(f"[{label}] {t}")
+        except Exception:
+            pass
+
+    if MARKETAUX_KEY:
+        try:
+            r = req.get(
+                "https://api.marketaux.com/v1/news/all",
+                params={"filter_entities": "true", "language": "en", "limit": 10,
+                        "api_token": MARKETAUX_KEY},
+                timeout=8, verify=False
+            )
+            for a in r.json().get("data", [])[:10]:
+                headlines.append(f"[ข่าวตลาด] {a['title']}")
+        except Exception:
+            pass
+
+    if not headlines:
+        return jsonify({"error": "ดึงข่าวไม่ได้ — เครือข่ายขัดข้อง", "brief": None})
+
+    headlines_text = "\n".join(headlines[:28])
+    today = datetime.now().strftime("%d %B %Y")
+
+    prompt = f"""คุณคือนักวิเคราะห์การเงินและเศรษฐกิจระดับโลก วันนี้คือ {today}
+
+นี่คือ headlines ข่าวจากตลาดโลกวันนี้:
+{headlines_text}
+
+วิเคราะห์และสรุปเป็นภาษาไทย ให้คนอ่านเข้าใจง่าย ใช้ภาษาชัดเจน ไม่ยาวเกินไป ตอบในรูปแบบนี้เท่านั้น:
+
+## ภาพรวมตลาดวันนี้
+สรุปสั้นๆ 2-3 ประโยคว่าวันนี้ตลาดโลกเป็นอย่างไรโดยรวม
+
+## การเมืองสหรัฐ & นโยบายเศรษฐกิจ
+นโยบาย Fed / ภาษี / การเมือง มีผลต่อตลาดหุ้นอย่างไร
+
+## น้ำมัน & สินค้าโภคภัณฑ์
+ราคาน้ำมันเป็นอย่างไร ส่งผลต่อหุ้นกลุ่มไหน ทองคำเป็นอย่างไร
+
+## สงคราม & ภูมิรัฐศาสตร์
+ความขัดแย้งระหว่างประเทศ มีผลต่อความเสี่ยงตลาดอย่างไร
+
+## หุ้น / ทอง / คริปโต — วันนี้เป็นอย่างไร
+แต่ละ asset class ได้รับผลอย่างไรจากข่าววันนี้
+
+## สรุปสำหรับนักลงทุน
+ควรระวังอะไร โอกาสอยู่ที่ไหน ความเสี่ยงวันนี้สูงหรือต่ำ
+
+ตอบเป็นภาษาไทยทั้งหมด แต่ละหัวข้อ 2-3 ประโยค กระชับ ตรงประเด็น"""
+
+    try:
+        r = req.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {or_key}",
+                     "Content-Type": "application/json",
+                     "HTTP-Referer": "https://artheenoi-dashboard.onrender.com"},
+            json={"model": "claude-haiku-4-5-20251001",
+                  "max_tokens": 1400,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=35, verify=False
+        )
+        brief = r.json()["choices"][0]["message"]["content"]
+        now = datetime.now()
+        with _news_brief_lock:
+            _news_brief_cache["brief"]   = brief
+            _news_brief_cache["updated"] = now
+        return jsonify({"brief": brief, "from_cache": False,
+                        "updated": now.strftime("%H:%M")})
+    except Exception as e:
+        log.warning(f"[NewsBrief] {e}")
+        with _news_brief_lock:
+            old = _news_brief_cache.get("brief")
+            old_ts = _news_brief_cache.get("updated")
+        if old:
+            return jsonify({"brief": old, "from_cache": True,
+                            "updated": old_ts.strftime("%H:%M") if old_ts else "—",
+                            "warn": "AI ตอบช้า — ใช้ข้อมูลก่อนหน้า"})
+        return jsonify({"error": f"AI ไม่ตอบสนอง: {e}", "brief": None})
 
 
 @app.route("/api/news/<sym>")
