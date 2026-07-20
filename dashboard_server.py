@@ -1906,6 +1906,350 @@ def compare():
     return dw.compare_page(user, mkt or {})
 
 
+@app.route("/api/sentiment/<sym>")
+@login_required
+def api_sentiment(sym):
+    """Aggregate sentiment score for a symbol from MarketAux news articles."""
+    sym = sym.upper()
+    if not MARKETAUX_KEY:
+        return jsonify({"sym": sym, "score": 0, "count": 0,
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "headlines": [], "error": "ไม่มี MARKETAUX_KEY"})
+    try:
+        import requests as req
+        r = req.get(
+            "https://api.marketaux.com/v1/news/all",
+            params={"symbols": sym, "filter_entities": "true",
+                    "language": "en", "limit": 10,
+                    "api_token": MARKETAUX_KEY},
+            timeout=8, verify=False
+        )
+        data = r.json().get("data", [])
+        scores = []
+        headlines = []
+        for a in data:
+            for ent in (a.get("entities") or []):
+                if ent.get("symbol", "").upper() == sym:
+                    s = ent.get("sentiment_score")
+                    if s is not None:
+                        scores.append(float(s))
+            headlines.append(a.get("title", ""))
+        avg_score = sum(scores) / len(scores) if scores else 0
+        return jsonify({
+            "sym": sym,
+            "score": round(avg_score, 4),
+            "count": len(data),
+            "headlines": headlines[:3],
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+    except Exception as e:
+        return jsonify({"sym": sym, "score": 0, "count": 0,
+                        "headlines": [], "error": str(e),
+                        "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+
+@app.route("/sentiment")
+@login_required
+def sentiment():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.sentiment_page(user, mkt or {}, MARKETAUX_KEY)
+
+
+@app.route("/api/earnings-calendar")
+@login_required
+def api_earnings_calendar():
+    """Return next earnings date + EPS estimate for a list of symbols."""
+    raw  = request.args.get("syms", "")
+    syms = [s.strip().upper() for s in raw.split(",") if s.strip()][:20]
+    if not syms:
+        return jsonify({"error": "no symbols"})
+    from datetime import date as _date
+    try:
+        import yfinance as yf
+        result = []
+        today  = _date.today()
+        for sym in syms:
+            try:
+                t = yf.Ticker(sym)
+                cal = t.calendar  # dict or DataFrame depending on yf version
+                earn_date = None
+                eps_est   = None
+                rev_est   = None
+                last_eps  = None
+                # yfinance >=0.2 returns a dict
+                if isinstance(cal, dict):
+                    ed = cal.get("Earnings Date")
+                    if ed:
+                        if hasattr(ed, "__iter__") and not isinstance(ed, str):
+                            ed = list(ed)[0] if ed else None
+                        if ed:
+                            earn_date = str(ed)[:10]
+                    eps_est = cal.get("EPS Estimate")
+                    rev_est = cal.get("Revenue Estimate")
+                    if rev_est and rev_est > 1e6:
+                        rev_est = f"${rev_est/1e9:.2f}B"
+                # Try quarterly earnings for last EPS
+                try:
+                    qe = t.quarterly_earnings
+                    if qe is not None and not qe.empty:
+                        last_eps = round(float(qe["Reported EPS"].iloc[-1]), 2)
+                except Exception:
+                    pass
+                # days_left
+                days_left = None
+                if earn_date:
+                    try:
+                        from datetime import datetime as _dt
+                        ed_date = _dt.strptime(earn_date[:10], "%Y-%m-%d").date()
+                        days_left = (ed_date - today).days
+                    except Exception:
+                        pass
+                result.append({
+                    "sym": sym,
+                    "date": earn_date,
+                    "days_left": days_left if days_left is not None else -999,
+                    "eps_est": round(float(eps_est), 2) if eps_est is not None else None,
+                    "rev_est": rev_est,
+                    "last_eps": last_eps,
+                })
+            except Exception:
+                result.append({"sym": sym, "date": None, "days_left": -999,
+                               "eps_est": None, "rev_est": None, "last_eps": None})
+        result.sort(key=lambda x: x["days_left"] if x["days_left"] and x["days_left"] > -900 else 9999)
+        return jsonify({"earnings": result, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/earnings")
+@login_required
+def earnings():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.earnings_page(user, mkt or {})
+
+
+@app.route("/targets")
+@login_required
+def targets():
+    import dashboard_web as dw
+    mkt, _, _ = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.targets_page(user, mkt or {})
+
+
+@app.route("/targets/set", methods=["POST"])
+@login_required
+def targets_set():
+    uname = session["username"]
+    sym   = request.form.get("sym", "").upper().strip()
+    if not sym:
+        return redirect("/targets")
+    try:
+        target = float(request.form.get("target") or 0)
+        stop   = float(request.form.get("stop") or 0)
+    except ValueError:
+        target = stop = 0
+    notes = request.form.get("notes", "")
+    with _users_lock:
+        users = load_users()
+        users[uname].setdefault("price_targets", {})[sym] = {
+            "target": target, "stop": stop, "notes": notes
+        }
+        save_users(users)
+    return redirect("/targets")
+
+
+@app.route("/targets/delete", methods=["POST"])
+@login_required
+def targets_delete():
+    uname = session["username"]
+    sym   = request.form.get("sym", "").upper().strip()
+    with _users_lock:
+        users = load_users()
+        users[uname].get("price_targets", {}).pop(sym, None)
+        save_users(users)
+    return redirect("/targets")
+
+
+@app.route("/portfolios")
+@login_required
+def portfolios():
+    import dashboard_web as dw
+    mkt, _, thb = _get_mkt()
+    user = _inject_active_portfolio(get_user(session["username"]))
+    return dw.portfolios_page(user, mkt or {}, thb or 34.0)
+
+
+@app.route("/portfolios/create", methods=["POST"])
+@login_required
+def portfolios_create():
+    uname = session["username"]
+    key   = request.form.get("key", "").strip().lower().replace(" ", "_")
+    label = request.form.get("label", "").strip()
+    if not key or not label:
+        return redirect("/portfolios")
+    with _users_lock:
+        users = load_users()
+        u = users[uname]
+        if "portfolios" not in u or not isinstance(u["portfolios"], dict):
+            u["portfolios"] = {"default": {"label": "Default", "holdings": u.get("portfolio", {})}}
+            u["active_portfolio"] = "default"
+        if key not in u["portfolios"]:
+            u["portfolios"][key] = {"label": label, "holdings": {}}
+        save_users(users)
+    return redirect("/portfolios")
+
+
+@app.route("/portfolios/switch", methods=["POST"])
+@login_required
+def portfolios_switch():
+    uname = session["username"]
+    key   = request.form.get("key", "").strip()
+    with _users_lock:
+        users = load_users()
+        u = users[uname]
+        ports = u.get("portfolios", {})
+        if key in ports or not ports:
+            u["active_portfolio"] = key
+        save_users(users)
+    return redirect("/portfolios")
+
+
+@app.route("/portfolios/delete", methods=["POST"])
+@login_required
+def portfolios_delete():
+    uname = session["username"]
+    key   = request.form.get("key", "").strip()
+    with _users_lock:
+        users = load_users()
+        u = users[uname]
+        ports = u.get("portfolios", {})
+        active = u.get("active_portfolio", "default")
+        if key in ports and key != active and len(ports) > 1:
+            del ports[key]
+        save_users(users)
+    return redirect("/portfolios")
+
+
+@app.route("/portfolio/export")
+@login_required
+def portfolio_export():
+    """Download active portfolio as CSV."""
+    user  = _inject_active_portfolio(get_user(session["username"]))
+    port  = user.get("portfolio", {})
+    lines = ["sym,qty,cost"]
+    for sym, info in port.items():
+        qty  = info.get("qty", 0) or info.get("shares", 0) or 0
+        cost = info.get("cost", 0) or info.get("cost_per", 0) or 0
+        lines.append(f"{sym},{qty},{cost}")
+    csv_text = "\n".join(lines)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=portfolio_{datetime.now().strftime('%Y%m%d')}.csv"}
+    )
+
+
+@app.route("/portfolio/import", methods=["POST"])
+@login_required
+def portfolio_import():
+    """Import portfolio from CSV (sym,qty,cost columns)."""
+    uname = session["username"]
+    f = request.files.get("csv_file")
+    if not f:
+        return redirect("/portfolios")
+    try:
+        text   = f.read().decode("utf-8", errors="ignore")
+        lines  = [l.strip() for l in text.splitlines() if l.strip()]
+        port   = {}
+        for line in lines:
+            if line.lower().startswith("sym"):
+                continue  # skip header
+            parts = line.split(",")
+            if len(parts) < 2:
+                continue
+            sym  = parts[0].strip().upper()
+            qty  = float(parts[1].strip()) if len(parts) > 1 else 0
+            cost = float(parts[2].strip()) if len(parts) > 2 else 0
+            if sym:
+                port[sym] = {"qty": qty, "cost": cost}
+        if port:
+            with _users_lock:
+                users = load_users()
+                u = users[uname]
+                active = u.get("active_portfolio", "")
+                if active and isinstance(u.get("portfolios"), dict):
+                    u["portfolios"][active]["holdings"] = port
+                else:
+                    u["portfolio"] = port
+                save_users(users)
+    except Exception as e:
+        log.warning(f"[import-csv] {e}")
+    return redirect("/portfolios")
+
+
+@app.route("/portfolio/clear", methods=["POST"])
+@login_required
+def portfolio_clear():
+    uname  = session["username"]
+    active = get_user(uname).get("active_portfolio", "")
+    with _users_lock:
+        users = load_users()
+        u = users[uname]
+        if active and isinstance(u.get("portfolios"), dict) and active in u["portfolios"]:
+            u["portfolios"][active]["holdings"] = {}
+        else:
+            u["portfolio"] = {}
+        save_users(users)
+    return redirect("/settings")
+
+
+@app.route("/watchlist/clear", methods=["POST"])
+@login_required
+def watchlist_clear():
+    update_user_fields(session["username"], {"watchlist": []})
+    return redirect("/settings")
+
+
+@app.route("/journal/clear", methods=["POST"])
+@login_required
+def journal_clear():
+    update_user_fields(session["username"], {"trade_journal": []})
+    return redirect("/settings")
+
+
+@app.route("/settings/save", methods=["POST"])
+@login_required
+def settings_save():
+    uname   = session["username"]
+    section = request.form.get("section", "")
+    if section == "profile":
+        display = request.form.get("display_name", "").strip()
+        new_pwd = request.form.get("new_password", "").strip()
+        conf    = request.form.get("confirm_password", "").strip()
+        fields  = {}
+        if display:
+            fields["display_name"] = display
+        if new_pwd:
+            if new_pwd == conf:
+                fields["password_hash"] = _hash(new_pwd)
+            else:
+                return redirect("/settings?msg=รหัสผ่านไม่ตรงกัน&mt=err")
+        if fields:
+            update_user_fields(uname, fields)
+        return redirect("/settings?msg=บันทึกแล้ว&mt=ok")
+    elif section == "api":
+        or_key    = request.form.get("openrouter_key", "").strip()
+        tg_notify = bool(request.form.get("telegram_notify"))
+        update_user_fields(uname, {"openrouter_key": or_key, "telegram_notify": tg_notify})
+        return redirect("/settings?msg=บันทึกแล้ว&mt=ok")
+    return redirect("/settings")
+
+
 @app.route("/api/macro")
 @login_required
 def api_macro():
