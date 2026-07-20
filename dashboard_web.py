@@ -772,6 +772,114 @@ def _portfolio_health_html(port_rows: list, total_val: float, total_cost: float)
   </div>
 </div>"""
 
+def home_page(user: dict, market_data: dict, macro: dict) -> str:
+    """Dashboard home — top movers + market pulse + quick links."""
+    display = user.get("display_name", "User")
+    mkt = market_data or {}
+
+    # ── Top movers from market cache ──────────────────────────────────
+    INDEX_SYMS = {"QQQ", "SPY", "DIA", "IVV", "VTI", "^GSPC", "^DJI", "^IXIC"}
+    movers = []
+    for sym, d in mkt.items():
+        if sym in INDEX_SYMS:
+            continue
+        chg = d.get("chg") or 0
+        price = d.get("price") or 0
+        if price > 0:
+            movers.append((sym, chg, price, d.get("name", sym)))
+
+    gainers = sorted(movers, key=lambda x: x[1], reverse=True)[:5]
+    losers  = sorted(movers, key=lambda x: x[1])[:5]
+
+    def mover_row(sym, chg, price, name):
+        col = "var(--green)" if chg >= 0 else "var(--red)"
+        sign = "+" if chg >= 0 else ""
+        short = name[:18] + "…" if len(name) > 18 else name
+        return f"""<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.5px">{sym}</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:6px">{short}</span>
+          </div>
+          <div style="text-align:right">
+            <span style="font-size:13px;font-weight:700;color:{col}">{sign}{chg:.2f}%</span>
+            <span style="font-size:10px;color:var(--muted);display:block">${price:,.2f}</span>
+          </div>
+        </div>"""
+
+    gainers_html = "".join(mover_row(*g) for g in gainers) or "<p style='color:var(--muted);font-size:12px'>— No data —</p>"
+    losers_html  = "".join(mover_row(*g) for g in losers)  or "<p style='color:var(--muted);font-size:12px'>— No data —</p>"
+
+    # ── Index pulse ────────────────────────────────────────────────────
+    index_cards = ""
+    for sym, label in [("SPY","S&P 500"), ("QQQ","NASDAQ"), ("DIA","DOW"), ("GC=F","Gold")]:
+        d = mkt.get(sym, {})
+        chg = d.get("chg") or 0
+        price = d.get("price") or 0
+        col = "var(--green)" if chg >= 0 else "var(--red)"
+        sign = "+" if chg >= 0 else ""
+        index_cards += f"""<div class="card-sm" style="text-align:center;padding:16px 12px">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">{label}</div>
+          <div style="font-size:20px;font-weight:900;color:var(--text)">${price:,.2f}</div>
+          <div style="font-size:13px;font-weight:700;color:{col};margin-top:4px">{sign}{chg:.2f}%</div>
+        </div>"""
+
+    # ── Quick nav tiles ────────────────────────────────────────────────
+    quick = [
+        ("/stocks",    "STOCKS",    "Portfolio & watchlist"),
+        ("/charts",    "CHARTS",    "Technical analysis"),
+        ("/gold",      "GOLD",      "XAU/USD · Thai price"),
+        ("/news",      "NEWS",      "Market headlines"),
+        ("/screener",  "SCREENER",  "Filter stocks"),
+        ("/signals",   "SIGNALS",   "Buy/sell signals"),
+        ("/crypto",    "CRYPTO",    "BTC ETH & more"),
+        ("/macro",     "MACRO",     "Fed · VIX · DXY"),
+    ]
+    tiles_html = ""
+    for href, title, sub in quick:
+        tiles_html += f"""<a href="{href}" style="display:block;text-decoration:none">
+          <div class="card-sm" style="padding:16px;transition:.12s" onmouseover="this.style.borderColor='var(--text)'" onmouseout="this.style.borderColor='var(--border)'">
+            <div style="font-size:11px;font-weight:700;color:var(--text);letter-spacing:1.5px">{title}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">{sub}</div>
+          </div>
+        </a>"""
+
+    content = f"""
+<div style="max-width:1100px;margin:0 auto;padding:24px 0">
+
+  <!-- Header -->
+  <div style="margin-bottom:28px">
+    <div style="font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Dashboard</div>
+    <div style="font-size:28px;font-weight:900;color:var(--text);letter-spacing:-1px;margin-top:4px">Welcome, {display}</div>
+  </div>
+
+  <!-- Index pulse -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:28px">
+    {index_cards}
+  </div>
+
+  <!-- Movers -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px">
+    <div class="card">
+      <div class="card-hdr" style="margin-bottom:4px">TOP GAINERS</div>
+      {gainers_html}
+    </div>
+    <div class="card">
+      <div class="card-hdr" style="margin-bottom:4px">TOP LOSERS</div>
+      {losers_html}
+    </div>
+  </div>
+
+  <!-- Quick nav -->
+  <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Quick Access</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
+    {tiles_html}
+  </div>
+
+</div>"""
+
+    return _base("home", "Home", content, user)
+
+
 def stocks_page(user: dict, market_data: dict, macro: dict, thb: float) -> str:
     port = user.get("portfolio", {})
     watchlist = user.get("watchlist", [])
