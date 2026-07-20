@@ -264,26 +264,6 @@ def _do_market_refresh():
             if not mkt.get(s, {}).get("price"):
                 mkt[s] = dwu.get_quote(s)
 
-        # Enrich with historical closes (for RSI, sparklines, 52W range)
-        _enrich_with_closes(mkt, all_syms)
-
-        # Enrich (optional, graceful fail)
-        try:
-            from at_analysis import fetch_finviz, fetch_earnings_date
-            enrich = [s for s in all_syms if "=" not in s and s != "BTC-USD"]
-            for s in enrich:
-                try:
-                    fv = fetch_finviz(s)
-                    if fv: mkt.setdefault(s, {}).update(fv)
-                    ed = fetch_earnings_date(s)
-                    if ed.get("earnings_days_away") is not None:
-                        mkt.setdefault(s, {}).update(ed)
-                    time.sleep(0.3)
-                except Exception:
-                    pass
-        except ImportError:
-            pass
-
         macro = {}
         try:
             from at_analysis import fetch_macro
@@ -295,35 +275,86 @@ def _do_market_refresh():
         macro.setdefault("qqq_chg", qqq_chg)
         macro.setdefault("mood", "BULL" if qqq_chg > 0.5 else "BEAR" if qqq_chg < -0.5 else "NEUTRAL")
 
-        # Vault picks (top ArtheeNoi picks filtered by macro)
-        vault_picks = []
-        try:
-            import at_stock_vault as vault_mod
-            qqq_chg = (mkt.get("QQQ") or {}).get("change_pct", 0) or (mkt.get("QQQ") or {}).get("chg", 0)
-            mood    = "BULL" if qqq_chg > 0.5 else "BEAR" if qqq_chg < -0.5 else "NEUTRAL"
-            vault_picks = vault_mod.get_vault_picks(macro=macro, qqq_chg=qqq_chg,
-                                                    market_mood=mood, n=60)
-            # Merge vault stock prices into mkt cache
-            vault_syms = [p.get("sym") or p.get("t","") for p in vault_picks]
-            new_syms   = [s for s in vault_syms if s and not mkt.get(s)]
-            if new_syms:
-                extra = vault_mod.fetch_picks_lite(new_syms[:50])
-                mkt.update(extra)
-            log.info(f"[Vault] {len(vault_picks)} picks loaded")
-        except Exception as e:
-            log.warning(f"[Vault] {e}")
-
-        # GC=F live price is fetched on-demand by /api/gold-xau (browser-polled every 5s)
-        # Do not duplicate yfinance calls here to avoid thread contention
-
+        # ── Phase 1 complete: basic prices ready → unlock pages immediately ──
         with _mkt_lock:
             _mkt_cache.update({"data": mkt, "macro": macro, "thb": thb,
-                               "updated": datetime.now(), "vault_picks": vault_picks})
+                               "updated": datetime.now(), "vault_picks": []})
+        log.info(f"[Market] Phase 1 done — {len(mkt)} prices ready, pages unlocked")
 
-        # Record daily portfolio snapshots for all users
-        _record_portfolio_snapshots(mkt, thb)
+        # ── Phase 2: heavy enrichment in background (doesn't block pages) ──
+        def _phase2():
+            try:
+                # Historical closes for RSI / sparklines (3mo is enough, faster than 1y)
+                import yfinance as yf
+                import warnings; warnings.filterwarnings("ignore")
+                batch = " ".join(all_syms)
+                tickers = yf.Tickers(batch)
+                for sym in all_syms:
+                    try:
+                        t = tickers.tickers.get(sym)
+                        if not t: continue
+                        hist = t.history(period="3mo", interval="1d")
+                        closes = hist["Close"].dropna().tolist()
+                        if closes:
+                            with _mkt_lock:
+                                entry = _mkt_cache["data"].setdefault(sym, {})
+                                entry["closes"] = [round(c, 4) for c in closes]
+                                entry.setdefault("high", round(max(closes), 2))
+                                entry.setdefault("low",  round(min(closes), 2))
+                    except Exception:
+                        pass
 
-        log.info(f"[Market] Refresh done — {len(mkt)} symbols, THB={thb:.2f}")
+                # Finviz / earnings enrichment
+                try:
+                    from at_analysis import fetch_finviz, fetch_earnings_date
+                    enrich = [s for s in all_syms if "=" not in s and s != "BTC-USD"]
+                    for s in enrich:
+                        try:
+                            fv = fetch_finviz(s)
+                            if fv:
+                                with _mkt_lock:
+                                    _mkt_cache["data"].setdefault(s, {}).update(fv)
+                            ed = fetch_earnings_date(s)
+                            if ed.get("earnings_days_away") is not None:
+                                with _mkt_lock:
+                                    _mkt_cache["data"].setdefault(s, {}).update(ed)
+                            time.sleep(0.2)
+                        except Exception:
+                            pass
+                except ImportError:
+                    pass
+
+                # Vault picks
+                try:
+                    import at_stock_vault as vault_mod
+                    with _mkt_lock:
+                        cur_mkt = dict(_mkt_cache.get("data") or {})
+                        cur_macro = dict(_mkt_cache.get("macro") or {})
+                    qchg = (cur_mkt.get("QQQ") or {}).get("chg", 0)
+                    mood = "BULL" if qchg > 0.5 else "BEAR" if qchg < -0.5 else "NEUTRAL"
+                    vp = vault_mod.get_vault_picks(macro=cur_macro, qqq_chg=qchg, market_mood=mood, n=60)
+                    new_syms = [p.get("sym") or p.get("t","") for p in vp]
+                    new_syms = [s for s in new_syms if s and not cur_mkt.get(s)]
+                    if new_syms:
+                        extra = vault_mod.fetch_picks_lite(new_syms[:50])
+                        with _mkt_lock:
+                            _mkt_cache["data"].update(extra)
+                    with _mkt_lock:
+                        _mkt_cache["vault_picks"] = vp
+                    log.info(f"[Vault] {len(vp)} picks loaded (phase 2)")
+                except Exception as e:
+                    log.warning(f"[Vault] {e}")
+
+                # Portfolio snapshots
+                with _mkt_lock:
+                    final_mkt = dict(_mkt_cache.get("data") or {})
+                    final_thb = _mkt_cache.get("thb", 35.0)
+                _record_portfolio_snapshots(final_mkt, final_thb)
+                log.info("[Market] Phase 2 enrichment complete")
+            except Exception as e:
+                log.warning(f"[Market] Phase 2 error: {e}")
+
+        threading.Thread(target=_phase2, daemon=True).start()
         return True
 
     except Exception as e:
