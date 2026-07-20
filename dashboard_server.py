@@ -1030,13 +1030,19 @@ def index():
 @login_required
 def stocks():
     import dashboard_web as dw
-    if not _require_mkt():
-        return dw.LOADING_PAGE
-    mkt, macro, thb = _get_mkt()
-    user = _inject_active_portfolio(get_user(session["username"]))
-    if not user:
-        return redirect("/logout")
-    return dw.stocks_page(user, mkt, macro, thb)
+    try:
+        if not _require_mkt():
+            return dw.LOADING_PAGE
+        mkt, macro, thb = _get_mkt()
+        user = _inject_active_portfolio(get_user(session["username"]))
+        if not user:
+            return redirect("/logout")
+        return dw.stocks_page(user, mkt, macro, thb)
+    except Exception as _e:
+        import traceback
+        _tb = traceback.format_exc()
+        log.error(f"[/stocks] crash for {session.get('username')}: {_tb}")
+        return f"<pre style='background:#111;color:#f87;padding:20px;font-size:12px'><b>DEBUG ERROR — /stocks</b>\n{_tb}</pre>", 500
 
 @app.route("/gold")
 @login_required
