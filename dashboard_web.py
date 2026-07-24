@@ -1,4 +1,4 @@
-"""
+﻿"""
 dashboard_web.py — ArtheeNoi Dashboard v2
 New premium dark UI: black/gray theme + sidebar navigation
 Pages: Stocks | Gold | Crypto | DCA | News | Signals | Paper Trading | AI
@@ -7041,6 +7041,8 @@ p{color:#5a5a68;font-size:14px;margin-bottom:4px}
 
 # ─── GEO MONITOR PAGE ────────────────────────────────────────────────────────
 
+# ─── GEO MONITOR PAGE v2 ─────────────────────────────────────────────────────
+
 def geo_page(user: dict) -> str:
     content = (
         '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'
@@ -7049,7 +7051,7 @@ def geo_page(user: dict) -> str:
 <style>
 #geo-wrap{position:relative;width:100%;height:calc(100vh - 110px);border-radius:12px;overflow:hidden;border:1px solid #2a2a2a}
 #geo-map{width:100%;height:100%}
-.geo-layers{position:absolute;top:12px;left:12px;z-index:900;display:flex;flex-wrap:wrap;gap:6px}
+.geo-layers{position:absolute;top:12px;left:12px;z-index:900;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 300px)}
 .layer-btn{background:#111;border:1px solid #333;color:#aaa;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;transition:.15s;font-family:inherit}
 .layer-btn.on{border-color:#e0e0e0;color:#f0f0f0;background:#1a1a1a}
 .layer-btn:hover{border-color:#666;color:#ccc}
@@ -7062,41 +7064,121 @@ def geo_page(user: dict) -> str:
 .tag-up{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
 .tag-dn{background:rgba(239,83,80,.15);color:#ef5350;border:1px solid rgba(239,83,80,.3);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
 .tag-neu{background:rgba(100,100,100,.15);color:#888;border:1px solid #333;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
-.geo-legend{position:absolute;bottom:20px;left:12px;z-index:900;background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:8px;padding:10px 14px;font-size:11px;color:#888}
-.leg-row{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.geo-legend{position:absolute;bottom:20px;left:12px;z-index:900;background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:8px;padding:10px 14px;font-size:10px;color:#888;max-height:300px;overflow-y:auto}
+.leg-row{display:flex;align-items:center;gap:7px;margin-bottom:5px;white-space:nowrap}
 .leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.leg-box{width:14px;height:10px;border-radius:2px;flex-shrink:0;opacity:.75}
 .geo-status{position:absolute;bottom:20px;right:12px;z-index:900;background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:6px;padding:5px 10px;font-size:10px;color:#555}
 .leaflet-popup-content-wrapper{background:#111;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:8px;font-family:Inter,sans-serif;font-size:12px}
 .leaflet-popup-tip{background:#111}
 .leaflet-popup-content{margin:10px 14px;line-height:1.6}
 .pop-title{font-weight:700;font-size:13px;margin-bottom:6px;color:#f0f0f0}
+.pop-sub{font-size:11px;color:#777;margin-bottom:4px}
 .pop-impact{margin-top:8px;padding-top:8px;border-top:1px solid #2a2a2a}
 .hub-mk{display:flex;align-items:center;gap:3px;padding:3px 7px;border-radius:4px;font-size:10px;font-weight:800;white-space:nowrap;border:1px solid rgba(255,255,255,.15)}
 </style>
 <div id="geo-wrap">
   <div id="geo-map"></div>
   <div class="geo-layers">
-    <button class="layer-btn on" id="btn-conflict" onclick="toggleLayer('conflict',this)">&#9876; Conflict</button>
-    <button class="layer-btn on" id="btn-quake"    onclick="toggleLayer('quake',this)">&#127755; Quake</button>
-    <button class="layer-btn on" id="btn-choke"    onclick="toggleLayer('choke',this)">&#128722; Chokepoints</button>
-    <button class="layer-btn on" id="btn-hubs"     onclick="toggleLayer('hubs',this)">&#128202; Markets</button>
-    <button class="layer-btn on" id="btn-lines"    onclick="toggleLayer('lines',this)">&#128279; Impact Lines</button>
-    <button class="layer-btn"    id="btn-refresh"  onclick="loadEvents()" style="border-color:#555;color:#aaa">&#8635; Refresh</button>
+    <button class="layer-btn on"  id="btn-zones"    onclick="toggleZoneLayer(this)">&#127757; Power Zones</button>
+    <button class="layer-btn on"  id="btn-conflict" onclick="toggleLayer('conflict',this)">&#9876; Conflict</button>
+    <button class="layer-btn on"  id="btn-quake"    onclick="toggleLayer('quake',this)">&#127755; Quake</button>
+    <button class="layer-btn on"  id="btn-choke"    onclick="toggleLayer('choke',this)">&#128722; Chokepoints</button>
+    <button class="layer-btn on"  id="btn-supply"   onclick="toggleLayer('supply',this)">&#127981; Supply Chain</button>
+    <button class="layer-btn on"  id="btn-hubs"     onclick="toggleLayer('hubs',this)">&#128202; Markets</button>
+    <button class="layer-btn on"  id="btn-lines"    onclick="toggleLayer('lines',this)">&#128279; Impact Lines</button>
+    <button class="layer-btn"     id="btn-refresh"  onclick="loadEvents()" style="border-color:#555;color:#aaa">&#8635; Refresh</button>
   </div>
   <div class="geo-panel">
     <h3>&#127760; Market Impact</h3>
     <div id="impactList"><div style="color:#555;font-size:12px">Loading events...</div></div>
   </div>
-  <div class="geo-legend">
+  <div class="geo-legend" id="geoLegend">
+    <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:#666;margin-bottom:7px">POWER ZONES</div>
+    <div class="leg-row"><div class="leg-box" style="background:#2563eb"></div>Western Alliance</div>
+    <div class="leg-row"><div class="leg-box" style="background:#ef4444"></div>China &amp; Allies</div>
+    <div class="leg-row"><div class="leg-box" style="background:#7f1d1d"></div>Russia &amp; CIS</div>
+    <div class="leg-row"><div class="leg-box" style="background:#0d9488"></div>ASEAN</div>
+    <div class="leg-row"><div class="leg-box" style="background:#d97706"></div>Middle East / OPEC</div>
+    <div class="leg-row"><div class="leg-box" style="background:#7c3aed"></div>South Asia</div>
+    <div class="leg-row"><div class="leg-box" style="background:#ea580c"></div>Latin America</div>
+    <div class="leg-row"><div class="leg-box" style="background:#16a34a"></div>Africa</div>
+    <div class="leg-row"><div class="leg-box" style="background:#374151"></div>Neutral / Other</div>
+    <div style="border-top:1px solid #222;margin:8px 0"></div>
+    <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:#666;margin-bottom:7px">SUPPLY CHAIN</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#818cf8"></div>Semiconductor Fab</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#fcd34d"></div>Gold Mine (Top 10)</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#78350f"></div>Major Oil Field</div>
+    <div style="border-top:1px solid #222;margin:8px 0"></div>
+    <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:#666;margin-bottom:7px">EVENTS</div>
     <div class="leg-row"><div class="leg-dot" style="background:#ef5350"></div>Conflict / War</div>
     <div class="leg-row"><div class="leg-dot" style="background:#f59e0b"></div>Earthquake</div>
     <div class="leg-row"><div class="leg-dot" style="background:#c8b87a"></div>Oil Chokepoint</div>
-    <div class="leg-row"><div class="leg-dot" style="background:#4caf50"></div>Market &#8593; impact</div>
-    <div class="leg-row"><div class="leg-dot" style="background:#ef5350"></div>Market &#8595; impact</div>
   </div>
   <div class="geo-status" id="geoStatus">&#8212;</div>
 </div>
 <script>
+// ── Power Zones ──────────────────────────────────────────────────────────────
+const ZONES = [
+  {id:"west",    label:"Western Alliance",   color:"#2563eb",
+   iso2:["US","CA","GB","IE","FR","DE","IT","ES","PT","NL","BE","LU","AT","CH","DK","NO","SE","FI","IS","PL","CZ","SK","HU","RO","BG","EE","LV","LT","HR","SI","GR","MT","CY","AL","ME","MK","BA","RS","AU","NZ","JP","KR","IL","LI","AD","MC","SM"]},
+  {id:"china",   label:"China & Allies",     color:"#ef4444",
+   iso2:["CN","KP","MM"]},
+  {id:"russia",  label:"Russia & CIS",       color:"#991b1b",
+   iso2:["RU","BY","KZ","KG","TJ","UZ","TM","AM","AZ"]},
+  {id:"asean",   label:"ASEAN",              color:"#0d9488",
+   iso2:["TH","VN","ID","MY","PH","SG","KH","LA","BN","TL"]},
+  {id:"mideast", label:"Middle East / OPEC", color:"#d97706",
+   iso2:["SA","AE","QA","KW","BH","OM","IR","IQ","SY","YE","JO","LB","TR","EG","LY","DZ","TN","MA","PS"]},
+  {id:"sasia",   label:"South Asia",         color:"#7c3aed",
+   iso2:["IN","PK","BD","LK","NP","BT","MV","AF"]},
+  {id:"latam",   label:"Latin America",      color:"#ea580c",
+   iso2:["BR","MX","AR","CO","CL","PE","VE","EC","BO","PY","UY","GY","SR","CR","PA","CU","DO","HN","GT","SV","NI","HT","JM","TT","BB","BS","BZ","GD","LC","VC","KN","AG","DM","GF"]},
+  {id:"africa",  label:"Africa",             color:"#16a34a",
+   iso2:["ZA","KE","TZ","UG","ET","SD","SS","SO","MZ","ZM","ZW","MW","MG","BW","NA","SZ","LS","RW","BI","DJ","ER","CD","CF","CM","TG","BJ","CI","GN","GW","SL","LR","GH","NG","NE","ML","BF","MR","SN","GM","CV","ST","GQ","GA","CG","AO","TD","KM","SC","MU"]},
+  {id:"other",   label:"Neutral / Other",    color:"#374151", iso2:[]},
+];
+const ZONE_BY_ISO = {};
+ZONES.forEach(z=>z.iso2.forEach(c=>ZONE_BY_ISO[c]=z));
+
+// ── Supply Chain ─────────────────────────────────────────────────────────────
+const SUPPLY = [
+  // Semiconductor Fabs
+  {type:"semi", lat:24.80,  lng:120.97, name:"TSMC (Hsinchu)",     note:"2nm / 3nm / 5nm · N.America+Japan customer",       stocks:["TSM","NVDA","AMD","AAPL","AVGO"]},
+  {type:"semi", lat:23.00,  lng:120.22, name:"TSMC (Tainan N3/N2)",note:"N3E mass prod · Taiwan geopolitical risk",          stocks:["TSM","NVDA","QCOM"]},
+  {type:"semi", lat:37.20,  lng:127.05, name:"Samsung (Hwaseong)", note:"3nm GAA · DRAM · HBM for AI GPU",                  stocks:["005930.KS","NVDA"]},
+  {type:"semi", lat:30.26,  lng:-97.74, name:"Samsung (Austin TX)", note:"14nm mature node · US onshore",                   stocks:["005930.KS"]},
+  {type:"semi", lat:45.52,  lng:-122.93,name:"Intel (Hillsboro OR)",note:"Intel 18A / 3nm · IFS foundry push",              stocks:["INTC"]},
+  {type:"semi", lat:53.35,  lng:-6.49,  name:"Intel (Leixlip IE)",  note:"Fab 34 · Intel 4 / EU Chips Act",                 stocks:["INTC"]},
+  {type:"semi", lat:51.42,  lng:5.41,   name:"ASML (Veldhoven NL)", note:"Only EUV/High-NA supplier · Zero substitute",     stocks:["ASML"]},
+  {type:"semi", lat:31.23,  lng:121.47, name:"SMIC (Shanghai CN)",  note:"7nm domestic · US sanction block on EUV",         stocks:["981.HK"]},
+  {type:"semi", lat:1.35,   lng:103.82, name:"GlobalFoundries (SG)",note:"22nm mature · automotive/RF",                     stocks:["GFS"]},
+  {type:"semi", lat:43.60,  lng:-116.20,name:"Micron (Boise ID)",   note:"DRAM / NAND · HBM4 in dev",                      stocks:["MU"]},
+  // Gold Mines
+  {type:"gold", lat:41.51,  lng:64.57,  name:"Muruntau (UZ)",      note:"~70t/yr · worlds largest open-pit gold mine",      stocks:["GLD","GOLD"]},
+  {type:"gold", lat:-4.05,  lng:137.12, name:"Grasberg (ID)",       note:"~45t/yr · Freeport · copper+gold giant",          stocks:["FCX","GLD"]},
+  {type:"gold", lat:40.35,  lng:-116.65,name:"Cortez (NV US)",      note:"~30t/yr · Barrick Gold",                          stocks:["GOLD","GLD"]},
+  {type:"gold", lat:-32.70, lng:116.47, name:"Boddington (AU)",     note:"~28t/yr · Newmont · open pit",                   stocks:["NEM","GLD"]},
+  {type:"gold", lat:18.99,  lng:-70.02, name:"Pueblo Viejo (DO)",   note:"~27t/yr · Barrick+Newmont JV",                   stocks:["GOLD","NEM"]},
+  {type:"gold", lat:3.66,   lng:29.58,  name:"Kibali (CD)",         note:"~25t/yr · AngloGold · DRC conflict zone",         stocks:["AU","GLD"]},
+  {type:"gold", lat:-3.12,  lng:152.63, name:"Lihir (PG)",          note:"~24t/yr · Newcrest/Newmont · Pacific",            stocks:["NEM","GLD"]},
+  {type:"gold", lat:-26.48, lng:27.34,  name:"Mponeng (ZA)",        note:"~12t/yr · deepest mine on Earth 4km",             stocks:["AU","GLD"]},
+  {type:"gold", lat:59.00,  lng:93.00,  name:"Olimpiada (RU)",      note:"~50t/yr · Polyus · sanctioned supply risk",       stocks:["GLD"]},
+  {type:"gold", lat:40.71,  lng:-116.10,name:"Carlin Trend (NV US)",note:"~28t/yr · Nevada Gold Mines · Barrick",           stocks:["GOLD","GLD"]},
+  // Oil Fields
+  {type:"oil",  lat:25.00,  lng:49.50,  name:"Ghawar (SA)",         note:"~3.8Mb/d · worlds largest oil field · Aramco",   stocks:["2222.SR","USO"]},
+  {type:"oil",  lat:28.00,  lng:48.50,  name:"Safaniya (SA)",       note:"~1.5Mb/d · worlds largest offshore field",        stocks:["2222.SR","USO"]},
+  {type:"oil",  lat:29.00,  lng:48.00,  name:"Burgan (KW)",         note:"~1.7Mb/d · Kuwait · 2nd largest ever found",      stocks:["USO","XOM"]},
+  {type:"oil",  lat:30.80,  lng:47.40,  name:"Rumaila (IQ)",        note:"~1.4Mb/d · Iraq · BP operator",                  stocks:["BP","USO"]},
+  {type:"oil",  lat:31.50,  lng:-102.50,name:"Permian Basin (TX)",  note:"~5.8Mb/d · US shale king · XOM/CVX/Pioneer",     stocks:["XOM","CVX","PXD","USO"]},
+  {type:"oil",  lat:61.00,  lng:76.00,  name:"Samotlor (RU)",       note:"~0.5Mb/d · W.Siberia · sanction overhang",       stocks:["USO"]},
+  {type:"oil",  lat:45.50,  lng:53.30,  name:"Tengiz (KZ)",         note:"~0.65Mb/d · Chevron op · Caspian route risk",    stocks:["CVX","USO"]},
+  {type:"oil",  lat:-22.00, lng:-40.00, name:"Tupi / Lula (BR)",    note:"~1Mb/d · Petrobras · deepwater pre-salt",        stocks:["PBR","USO"]},
+  {type:"oil",  lat:20.00,  lng:-91.00, name:"Cantarell (MX)",      note:"~0.35Mb/d · declining · Pemex",                  stocks:["USO"]},
+  {type:"oil",  lat:46.00,  lng:52.00,  name:"Kashagan (KZ)",       note:"~0.4Mb/d · Caspian · Shell/Total JV",            stocks:["SHEL","TTE","USO"]},
+];
+
+// ── Market hubs ──────────────────────────────────────────────────────────────
 const HUBS = {
   gold:   {lat:47.37,  lng:8.54,    label:"Gold",    color:"#c8b87a", bg:"rgba(200,184,122,.18)"},
   oil:    {lat:29.76,  lng:-95.37,  label:"Oil WTI", color:"#CD853F", bg:"rgba(205,133,63,.18)"},
@@ -7105,82 +7187,169 @@ const HUBS = {
   set:    {lat:13.75,  lng:100.52,  label:"SET",     color:"#60a5fa", bg:"rgba(96,165,250,.18)"},
   crypto: {lat:37.77,  lng:-122.42, label:"Crypto",  color:"#a78bfa", bg:"rgba(167,139,250,.18)"},
 };
+
+// ── Chokepoints ───────────────────────────────────────────────────────────────
 const CHOKES = [
-  {lat:26.56,lng:56.26, name:"Strait of Hormuz",  note:"20% world oil supply"},
-  {lat:30.58,lng:32.35, name:"Suez Canal",          note:"~12% world trade"},
-  {lat:1.14, lng:103.58,name:"Strait of Malacca",  note:"25% world trade"},
-  {lat:41.12,lng:29.08, name:"Bosporus Strait",     note:"Russian oil route"},
-  {lat:35.97,lng:-5.36, name:"Strait of Gibraltar", note:"Atlantic-Med gateway"},
-  {lat:12.5, lng:43.5,  name:"Bab el-Mandeb",       note:"Red Sea choke"},
-  {lat:28.5, lng:-80.0, name:"Panama Canal",        note:"Atlantic-Pacific route"},
+  {lat:26.56,lng:56.26, name:"Strait of Hormuz",   note:"20% world oil supply"},
+  {lat:30.58,lng:32.35, name:"Suez Canal",           note:"~12% world trade"},
+  {lat:1.14, lng:103.58,name:"Strait of Malacca",   note:"25% world trade"},
+  {lat:41.12,lng:29.08, name:"Bosporus Strait",      note:"Russian oil route"},
+  {lat:35.97,lng:-5.36, name:"Strait of Gibraltar",  note:"Atlantic-Med gateway"},
+  {lat:12.5, lng:43.5,  name:"Bab el-Mandeb",        note:"Red Sea choke"},
+  {lat:28.5, lng:-80.0, name:"Panama Canal",         note:"Atlantic-Pacific route"},
 ];
+
+// ── Map init ──────────────────────────────────────────────────────────────────
 const map = L.map("geo-map",{center:[20,10],zoom:2});
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
   attribution:"© CARTO",subdomains:"abcd",maxZoom:19
 }).addTo(map);
-const layers={conflict:[],quake:[],choke:[],hubs:[],lines:[]};
-const visible={conflict:true,quake:true,choke:true,hubs:true,lines:true};
+
+const layers={conflict:[],quake:[],choke:[],hubs:[],lines:[],supply:[]};
+const visible={conflict:true,quake:true,choke:true,hubs:true,lines:true,supply:true,zones:true};
 let activeLines=[];
+let zoneGeoLayer=null;
+let zoneLoaded=false;
+
+// ── Power Zone layer ──────────────────────────────────────────────────────────
+function getZoneStyle(iso2){
+  const zone = ZONE_BY_ISO[iso2] || ZONES[ZONES.length-1];
+  return {
+    fillColor: zone.color,
+    fillOpacity: 0.22,
+    color: zone.color,
+    weight: 0.6,
+    opacity: 0.5,
+  };
+}
+async function loadZones(){
+  if(zoneLoaded && zoneGeoLayer){zoneGeoLayer.addTo(map);return;}
+  try{
+    const r = await fetch("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson");
+    const gj = await r.json();
+    zoneGeoLayer = L.geoJSON(gj,{
+      style: feat=>{
+        const iso2 = (feat.properties||{}).ISO_A2 || "";
+        return getZoneStyle(iso2);
+      },
+      onEachFeature:(feat,layer)=>{
+        const iso2 = (feat.properties||{}).ISO_A2||"";
+        const zone = ZONE_BY_ISO[iso2]||ZONES[ZONES.length-1];
+        const name = (feat.properties||{}).ADMIN||(feat.properties||{}).NAME||iso2;
+        layer.bindTooltip("<b>"+name+"</b><br><span style=\\"color:"+zone.color+";font-weight:700\\">"+zone.label+"</span>",{sticky:true});
+      }
+    });
+    zoneGeoLayer.addTo(map);
+    zoneGeoLayer.bringToBack();
+    zoneLoaded=true;
+  }catch(e){console.error("Zone GeoJSON load failed",e);}
+}
+function toggleZoneLayer(btn){
+  visible.zones=!visible.zones;
+  btn.classList.toggle("on",visible.zones);
+  if(visible.zones){
+    if(zoneLoaded&&zoneGeoLayer){zoneGeoLayer.addTo(map);zoneGeoLayer.bringToBack();}
+    else loadZones();
+  } else {
+    if(zoneGeoLayer) map.removeLayer(zoneGeoLayer);
+  }
+}
+
+// ── Supply Chain markers ──────────────────────────────────────────────────────
+const SC_STYLE={
+  semi:{color:"#818cf8",size:9,shape:"circle",label:"SEMI"},
+  gold:{color:"#fcd34d",size:8,shape:"diamond",label:"GOLD"},
+  oil: {color:"#92400e",size:9,shape:"square", label:"OIL"},
+};
+function addSupplyChain(){
+  SUPPLY.forEach(sc=>{
+    const st=SC_STYLE[sc.type];
+    let shapeHtml;
+    if(sc.type==="gold")
+      shapeHtml="<div style=\\"width:10px;height:10px;background:"+st.color+";border:1.5px solid #a07800;transform:rotate(45deg);\\"></div>";
+    else if(sc.type==="semi")
+      shapeHtml="<div style=\\"width:10px;height:10px;background:"+st.color+";border:1.5px solid #6366f1;border-radius:50%;\\"></div>";
+    else
+      shapeHtml="<div style=\\"width:10px;height:10px;background:"+st.color+";border:1.5px solid #5c2d00;border-radius:2px;\\"></div>";
+    const icon=L.divIcon({className:"",html:shapeHtml,iconSize:[10,10],iconAnchor:[5,5]});
+    const m=L.marker([sc.lat,sc.lng],{icon,zIndexOffset:200}).addTo(map);
+    const stockTags=(sc.stocks||[]).map(s=>"<code style=\\"background:#1a1a1a;padding:1px 4px;border-radius:3px;font-size:10px;color:#ccc\\">"+s+"</code>").join(" ");
+    m.bindPopup(
+      "<div class=\\"pop-title\\">"+
+        (sc.type==="semi"?"&#128187; ":sc.type==="gold"?"&#9651; ":"&#128722; ")+
+        sc.name+"</div>"+
+      "<div class=\\"pop-sub\\">"+sc.note+"</div>"+
+      (stockTags?"<div class=\\"pop-impact\\"><div style=\\"font-size:10px;color:#666;margin-bottom:4px\\">Related stocks:</div>"+stockTags+"</div>":"")
+    );
+    layers.supply.push(m);
+  });
+}
+
+// ── Hub markers ───────────────────────────────────────────────────────────────
 function addHubs(){
   Object.entries(HUBS).forEach(([key,h])=>{
     const icon=L.divIcon({className:"",
       html:"<div class=\\"hub-mk\\" style=\\"background:"+h.bg+";border-color:"+h.color+";color:"+h.color+"\\">"+h.label+"</div>",
-      iconSize:[90,22],iconAnchor:[45,11]});
+      iconSize:[80,22],iconAnchor:[40,11]});
     const m=L.marker([h.lat,h.lng],{icon,zIndexOffset:500}).addTo(map);
     m.bindTooltip("<b>"+h.label+"</b>");
     layers.hubs.push(m);
   });
 }
+
+// ── Chokepoint markers ────────────────────────────────────────────────────────
 function addChokes(){
   CHOKES.forEach(c=>{
     const icon=L.divIcon({className:"",
       html:"<div style=\\"width:12px;height:12px;background:#c8b87a;border:2px solid #a07848;border-radius:3px;\\"></div>",
       iconSize:[12,12],iconAnchor:[6,6]});
     const m=L.marker([c.lat,c.lng],{icon}).addTo(map);
-    m.bindPopup("<div class=\\"pop-title\\">"+c.name+"</div><div style=\\"color:#888;font-size:11px\\">"+c.note+"</div>");
+    m.bindPopup("<div class=\\"pop-title\\">"+c.name+"</div><div class=\\"pop-sub\\">"+c.note+"</div>");
     layers.choke.push(m);
   });
 }
+
+// ── Impact lines ──────────────────────────────────────────────────────────────
 function clearLines(){
   activeLines.forEach(l=>{try{map.removeLayer(l)}catch(e){}});
   activeLines=[];layers.lines=[];
 }
 function showLines(ev,latlng){
-  clearLines();
-  if(!visible.lines)return;
+  clearLines();if(!visible.lines)return;
   (ev.impacts||[]).forEach(imp=>{
     const hub=HUBS[imp.market];if(!hub)return;
     const clr=imp.direction==="up"?"#4caf50":"#ef5350";
     const ln=L.polyline([[latlng.lat,latlng.lng],[hub.lat,hub.lng]],
-      {color:clr,weight:1.5,opacity:.75,dashArray:"8 6"}).addTo(map);
-    ln.bindTooltip("<b>"+hub.label+"</b><br>"+imp.label,{sticky:true});
+      {color:clr,weight:1.5,opacity:.8,dashArray:"8 6"}).addTo(map);
+    ln.bindTooltip("<b>"+hub.label+"</b> "+imp.label,{sticky:true});
     activeLines.push(ln);layers.lines.push(ln);
   });
 }
+
+// ── Event rendering ───────────────────────────────────────────────────────────
 function renderEvents(data){
-  ["conflict","quake"].forEach(k=>{
-    layers[k].forEach(m=>{try{map.removeLayer(m)}catch(e){}});
-    layers[k]=[];
-  });
+  ["conflict","quake"].forEach(k=>{layers[k].forEach(m=>{try{map.removeLayer(m)}catch(e){}});layers[k]=[];});
   clearLines();
   (data.conflicts||[]).forEach(ev=>{
     const r=Math.max(5,Math.min(14,5+(ev.tone||0)*-0.3));
     const m=L.circleMarker([ev.lat,ev.lng],{radius:r,color:"#ef5350",fillColor:"#ef5350",fillOpacity:.65,weight:1.5}).addTo(map);
     const impHtml=(ev.impacts||[]).map(i=>"<span class=\\""+( i.direction==="up"?"tag-up":"tag-dn")+"\\">" +i.label+"</span>").join(" ");
-    m.bindPopup("<div class=\\"pop-title\\">"+(ev.title||"Conflict event")+"</div><div style=\\"font-size:11px;color:#777;margin-bottom:6px\\">"+(ev.source||"")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+( impHtml||"<span class=\\"tag-neu\\">Monitoring</span>")+"</div></div>");
+    m.bindPopup("<div class=\\"pop-title\\">&#9876; "+(ev.title||"Conflict")+"</div><div class=\\"pop-sub\\">"+(ev.source||"")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+(impHtml||"<span class=\\"tag-neu\\">Monitoring</span>")+"</div></div>");
     m.on("click",()=>showLines(ev,m.getLatLng()));
     layers.conflict.push(m);
   });
   (data.earthquakes||[]).forEach(eq=>{
     const m=L.circleMarker([eq.lat,eq.lng],{radius:Math.max(4,eq.mag*2.5),color:"#f59e0b",fillColor:"#f59e0b",fillOpacity:.55,weight:1.5}).addTo(map);
     const impHtml=(eq.impacts||[]).map(i=>"<span class=\\""+( i.direction==="up"?"tag-up":"tag-dn")+"\\">" +i.label+"</span>").join(" ");
-    m.bindPopup("<div class=\\"pop-title\\">M"+eq.mag+" - "+(eq.place||"Unknown")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+(impHtml||"<span class=\\"tag-neu\\">Minor / No impact</span>")+"</div></div>");
+    m.bindPopup("<div class=\\"pop-title\\">&#127755; M"+eq.mag+" — "+(eq.place||"Unknown")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+(impHtml||"<span class=\\"tag-neu\\">Minor / No impact</span>")+"</div></div>");
     m.on("click",()=>showLines(eq,m.getLatLng()));
     layers.quake.push(m);
   });
   updatePanel(data);
   document.getElementById("geoStatus").textContent="Updated "+new Date().toLocaleTimeString("th-TH")+" | "+(data.conflicts||[]).length+" conflicts | "+(data.earthquakes||[]).length+" quakes";
 }
+
+// ── Impact panel ──────────────────────────────────────────────────────────────
 function updatePanel(data){
   const all=[...(data.conflicts||[]).map(e=>({...e,_t:"conflict"})),
              ...(data.earthquakes||[]).filter(e=>(e.impacts||[]).length>0).map(e=>({...e,_t:"quake"}))];
@@ -7192,12 +7361,16 @@ function updatePanel(data){
     return "<div class=\\"impact-item\\" onclick=\\"map.flyTo(["+ev.lat+","+ev.lng+"],5)\\"><div class=\\"impact-title\\">"+icon+" "+(ev.title||ev.place||"").substring(0,60)+"</div><div class=\\"impact-tags\\">"+(impHtml||"<span class=\\"tag-neu\\">Monitoring</span>")+"</div></div>";
   }).join("");
 }
+
+// ── Toggle ────────────────────────────────────────────────────────────────────
 function toggleLayer(key,btn){
   visible[key]=!visible[key];
   btn.classList.toggle("on",visible[key]);
   if(key==="lines"){if(!visible.lines)clearLines();return;}
   layers[key].forEach(m=>{if(visible[key])m.addTo(map);else map.removeLayer(m);});
 }
+
+// ── Fetch events ──────────────────────────────────────────────────────────────
 async function loadEvents(){
   document.getElementById("geoStatus").textContent="Loading...";
   try{
@@ -7209,9 +7382,14 @@ async function loadEvents(){
     console.error(e);
   }
 }
-addHubs();addChokes();loadEvents();
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadZones();
+addSupplyChain();
+addHubs();
+addChokes();
+loadEvents();
 setInterval(loadEvents,300000);
 </script>"""
     )
     return _base("map", "Geo Monitor", content, user)
-
