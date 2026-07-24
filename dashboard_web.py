@@ -364,6 +364,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
         ("dividends", "💰", "Dividends"),
         ("tools",     "🧮", "Tools"),
         ("news",      "📰", "News"),
+        ("map",       "🗺️", "Map"),
         ("paper",     "🧪", "Paper"),
         ("ai",        "🤖", "AI"),
         ("screener",  "🔭", "Screener"),
@@ -392,7 +393,7 @@ def _base(page_id: str, title: str, content: str, user: dict,
     _TH = {
         "stocks":"หุ้น","watchlist":"ติดตาม","journal":"บันทึก","charts":"กราฟ",
         "gold":"ทอง","crypto":"คริปโต","dca":"DCA","signals":"สัญญาณ",
-        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","paper":"ทดลอง",
+        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","map":"แผนที่","paper":"ทดลอง",
         "ai":"AI","screener":"คัดกรอง","heatmap":"ฮีตแมป","analytics":"วิเคราะห์",
         "scanner":"สแกน","chat":"แชท","alerts":"แจ้งเตือน","calendar":"ปฏิทิน",
         "options":"ออปชัน","backtest":"ทดสอบ","correlation":"สหสัมพันธ์",
@@ -3512,6 +3513,7 @@ def _sidebar_html(user: dict, active: str) -> str:
         ("dividends", "💰", "Dividends"),
         ("tools",     "🧮", "Tools"),
         ("news",      "📰", "News"),
+        ("map",       "🗺️", "Map"),
         ("paper",     "🧪", "Paper"),
         ("ai",        "🤖", "AI"),
         ("screener",  "🔭", "Screener"),
@@ -3540,7 +3542,7 @@ def _sidebar_html(user: dict, active: str) -> str:
     _TH2 = {
         "stocks":"หุ้น","watchlist":"ติดตาม","journal":"บันทึก","charts":"กราฟ",
         "gold":"ทอง","crypto":"คริปโต","dca":"DCA","signals":"สัญญาณ",
-        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","paper":"ทดลอง",
+        "dividends":"ปันผล","tools":"เครื่องมือ","news":"ข่าว","map":"แผนที่","paper":"ทดลอง",
         "ai":"AI","screener":"คัดกรอง","heatmap":"ฮีตแมป","analytics":"วิเคราะห์",
         "scanner":"สแกน","chat":"แชท","alerts":"แจ้งเตือน","calendar":"ปฏิทิน",
         "options":"ออปชัน","backtest":"ทดสอบ","correlation":"สหสัมพันธ์",
@@ -7035,3 +7037,181 @@ p{color:#5a5a68;font-size:14px;margin-bottom:4px}
   <p class="note">หน้าจะ refresh อัตโนมัติทุก 12 วินาที</p>
 </div>
 </body></html>"""
+
+
+# ─── GEO MONITOR PAGE ────────────────────────────────────────────────────────
+
+def geo_page(user: dict) -> str:
+    content = (
+        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'
+        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.min.js"></script>'
+        """
+<style>
+#geo-wrap{position:relative;width:100%;height:calc(100vh - 110px);border-radius:12px;overflow:hidden;border:1px solid #2a2a2a}
+#geo-map{width:100%;height:100%}
+.geo-layers{position:absolute;top:12px;left:12px;z-index:900;display:flex;flex-wrap:wrap;gap:6px}
+.layer-btn{background:#111;border:1px solid #333;color:#aaa;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;transition:.15s;font-family:inherit}
+.layer-btn.on{border-color:#e0e0e0;color:#f0f0f0;background:#1a1a1a}
+.layer-btn:hover{border-color:#666;color:#ccc}
+.geo-panel{position:absolute;top:12px;right:12px;z-index:900;width:270px;background:rgba(10,10,10,.92);border:1px solid #2a2a2a;border-radius:10px;padding:14px;backdrop-filter:blur(6px);max-height:calc(100% - 24px);overflow-y:auto}
+.geo-panel h3{font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:10px}
+.impact-item{padding:8px 0;border-bottom:1px solid #1e1e1e;cursor:pointer}
+.impact-item:last-child{border:none}
+.impact-title{font-size:12px;font-weight:600;color:#e0e0e0;line-height:1.4;margin-bottom:4px}
+.impact-tags{display:flex;gap:4px;flex-wrap:wrap}
+.tag-up{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
+.tag-dn{background:rgba(239,83,80,.15);color:#ef5350;border:1px solid rgba(239,83,80,.3);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
+.tag-neu{background:rgba(100,100,100,.15);color:#888;border:1px solid #333;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700}
+.geo-legend{position:absolute;bottom:20px;left:12px;z-index:900;background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:8px;padding:10px 14px;font-size:11px;color:#888}
+.leg-row{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.geo-status{position:absolute;bottom:20px;right:12px;z-index:900;background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:6px;padding:5px 10px;font-size:10px;color:#555}
+.leaflet-popup-content-wrapper{background:#111;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:8px;font-family:Inter,sans-serif;font-size:12px}
+.leaflet-popup-tip{background:#111}
+.leaflet-popup-content{margin:10px 14px;line-height:1.6}
+.pop-title{font-weight:700;font-size:13px;margin-bottom:6px;color:#f0f0f0}
+.pop-impact{margin-top:8px;padding-top:8px;border-top:1px solid #2a2a2a}
+.hub-mk{display:flex;align-items:center;gap:3px;padding:3px 7px;border-radius:4px;font-size:10px;font-weight:800;white-space:nowrap;border:1px solid rgba(255,255,255,.15)}
+</style>
+<div id="geo-wrap">
+  <div id="geo-map"></div>
+  <div class="geo-layers">
+    <button class="layer-btn on" id="btn-conflict" onclick="toggleLayer('conflict',this)">&#9876; Conflict</button>
+    <button class="layer-btn on" id="btn-quake"    onclick="toggleLayer('quake',this)">&#127755; Quake</button>
+    <button class="layer-btn on" id="btn-choke"    onclick="toggleLayer('choke',this)">&#128722; Chokepoints</button>
+    <button class="layer-btn on" id="btn-hubs"     onclick="toggleLayer('hubs',this)">&#128202; Markets</button>
+    <button class="layer-btn on" id="btn-lines"    onclick="toggleLayer('lines',this)">&#128279; Impact Lines</button>
+    <button class="layer-btn"    id="btn-refresh"  onclick="loadEvents()" style="border-color:#555;color:#aaa">&#8635; Refresh</button>
+  </div>
+  <div class="geo-panel">
+    <h3>&#127760; Market Impact</h3>
+    <div id="impactList"><div style="color:#555;font-size:12px">Loading events...</div></div>
+  </div>
+  <div class="geo-legend">
+    <div class="leg-row"><div class="leg-dot" style="background:#ef5350"></div>Conflict / War</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#f59e0b"></div>Earthquake</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#c8b87a"></div>Oil Chokepoint</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#4caf50"></div>Market &#8593; impact</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#ef5350"></div>Market &#8595; impact</div>
+  </div>
+  <div class="geo-status" id="geoStatus">&#8212;</div>
+</div>
+<script>
+const HUBS = {
+  gold:   {lat:47.37,  lng:8.54,    label:"Gold",    color:"#c8b87a", bg:"rgba(200,184,122,.18)"},
+  oil:    {lat:29.76,  lng:-95.37,  label:"Oil WTI", color:"#CD853F", bg:"rgba(205,133,63,.18)"},
+  sp500:  {lat:40.71,  lng:-74.01,  label:"S&P500",  color:"#4caf50", bg:"rgba(76,175,80,.18)"},
+  nikkei: {lat:35.68,  lng:139.69,  label:"Nikkei",  color:"#FF6347", bg:"rgba(255,99,71,.18)"},
+  set:    {lat:13.75,  lng:100.52,  label:"SET",     color:"#60a5fa", bg:"rgba(96,165,250,.18)"},
+  crypto: {lat:37.77,  lng:-122.42, label:"Crypto",  color:"#a78bfa", bg:"rgba(167,139,250,.18)"},
+};
+const CHOKES = [
+  {lat:26.56,lng:56.26, name:"Strait of Hormuz",  note:"20% world oil supply"},
+  {lat:30.58,lng:32.35, name:"Suez Canal",          note:"~12% world trade"},
+  {lat:1.14, lng:103.58,name:"Strait of Malacca",  note:"25% world trade"},
+  {lat:41.12,lng:29.08, name:"Bosporus Strait",     note:"Russian oil route"},
+  {lat:35.97,lng:-5.36, name:"Strait of Gibraltar", note:"Atlantic-Med gateway"},
+  {lat:12.5, lng:43.5,  name:"Bab el-Mandeb",       note:"Red Sea choke"},
+  {lat:28.5, lng:-80.0, name:"Panama Canal",        note:"Atlantic-Pacific route"},
+];
+const map = L.map("geo-map",{center:[20,10],zoom:2});
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
+  attribution:"© CARTO",subdomains:"abcd",maxZoom:19
+}).addTo(map);
+const layers={conflict:[],quake:[],choke:[],hubs:[],lines:[]};
+const visible={conflict:true,quake:true,choke:true,hubs:true,lines:true};
+let activeLines=[];
+function addHubs(){
+  Object.entries(HUBS).forEach(([key,h])=>{
+    const icon=L.divIcon({className:"",
+      html:"<div class=\\"hub-mk\\" style=\\"background:"+h.bg+";border-color:"+h.color+";color:"+h.color+"\\">"+h.label+"</div>",
+      iconSize:[90,22],iconAnchor:[45,11]});
+    const m=L.marker([h.lat,h.lng],{icon,zIndexOffset:500}).addTo(map);
+    m.bindTooltip("<b>"+h.label+"</b>");
+    layers.hubs.push(m);
+  });
+}
+function addChokes(){
+  CHOKES.forEach(c=>{
+    const icon=L.divIcon({className:"",
+      html:"<div style=\\"width:12px;height:12px;background:#c8b87a;border:2px solid #a07848;border-radius:3px;\\"></div>",
+      iconSize:[12,12],iconAnchor:[6,6]});
+    const m=L.marker([c.lat,c.lng],{icon}).addTo(map);
+    m.bindPopup("<div class=\\"pop-title\\">"+c.name+"</div><div style=\\"color:#888;font-size:11px\\">"+c.note+"</div>");
+    layers.choke.push(m);
+  });
+}
+function clearLines(){
+  activeLines.forEach(l=>{try{map.removeLayer(l)}catch(e){}});
+  activeLines=[];layers.lines=[];
+}
+function showLines(ev,latlng){
+  clearLines();
+  if(!visible.lines)return;
+  (ev.impacts||[]).forEach(imp=>{
+    const hub=HUBS[imp.market];if(!hub)return;
+    const clr=imp.direction==="up"?"#4caf50":"#ef5350";
+    const ln=L.polyline([[latlng.lat,latlng.lng],[hub.lat,hub.lng]],
+      {color:clr,weight:1.5,opacity:.75,dashArray:"8 6"}).addTo(map);
+    ln.bindTooltip("<b>"+hub.label+"</b><br>"+imp.label,{sticky:true});
+    activeLines.push(ln);layers.lines.push(ln);
+  });
+}
+function renderEvents(data){
+  ["conflict","quake"].forEach(k=>{
+    layers[k].forEach(m=>{try{map.removeLayer(m)}catch(e){}});
+    layers[k]=[];
+  });
+  clearLines();
+  (data.conflicts||[]).forEach(ev=>{
+    const r=Math.max(5,Math.min(14,5+(ev.tone||0)*-0.3));
+    const m=L.circleMarker([ev.lat,ev.lng],{radius:r,color:"#ef5350",fillColor:"#ef5350",fillOpacity:.65,weight:1.5}).addTo(map);
+    const impHtml=(ev.impacts||[]).map(i=>"<span class=\\""+( i.direction==="up"?"tag-up":"tag-dn")+"\\">" +i.label+"</span>").join(" ");
+    m.bindPopup("<div class=\\"pop-title\\">"+(ev.title||"Conflict event")+"</div><div style=\\"font-size:11px;color:#777;margin-bottom:6px\\">"+(ev.source||"")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+( impHtml||"<span class=\\"tag-neu\\">Monitoring</span>")+"</div></div>");
+    m.on("click",()=>showLines(ev,m.getLatLng()));
+    layers.conflict.push(m);
+  });
+  (data.earthquakes||[]).forEach(eq=>{
+    const m=L.circleMarker([eq.lat,eq.lng],{radius:Math.max(4,eq.mag*2.5),color:"#f59e0b",fillColor:"#f59e0b",fillOpacity:.55,weight:1.5}).addTo(map);
+    const impHtml=(eq.impacts||[]).map(i=>"<span class=\\""+( i.direction==="up"?"tag-up":"tag-dn")+"\\">" +i.label+"</span>").join(" ");
+    m.bindPopup("<div class=\\"pop-title\\">M"+eq.mag+" - "+(eq.place||"Unknown")+"</div><div class=\\"pop-impact\\"><div style=\\"font-size:11px;color:#888;margin-bottom:5px\\">Market Impact:</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px\\">"+(impHtml||"<span class=\\"tag-neu\\">Minor / No impact</span>")+"</div></div>");
+    m.on("click",()=>showLines(eq,m.getLatLng()));
+    layers.quake.push(m);
+  });
+  updatePanel(data);
+  document.getElementById("geoStatus").textContent="Updated "+new Date().toLocaleTimeString("th-TH")+" | "+(data.conflicts||[]).length+" conflicts | "+(data.earthquakes||[]).length+" quakes";
+}
+function updatePanel(data){
+  const all=[...(data.conflicts||[]).map(e=>({...e,_t:"conflict"})),
+             ...(data.earthquakes||[]).filter(e=>(e.impacts||[]).length>0).map(e=>({...e,_t:"quake"}))];
+  all.sort((a,b)=>(b.impacts||[]).length-(a.impacts||[]).length);
+  if(!all.length){document.getElementById("impactList").innerHTML="<div style=\\"color:#555;font-size:12px\\">No impact events</div>";return;}
+  document.getElementById("impactList").innerHTML=all.slice(0,15).map(ev=>{
+    const icon=ev._t==="conflict"?"&#9876;":"&#127755;";
+    const impHtml=(ev.impacts||[]).map(i=>"<span class=\\""+( i.direction==="up"?"tag-up":"tag-dn")+"\\">" +i.label+"</span>").join(" ");
+    return "<div class=\\"impact-item\\" onclick=\\"map.flyTo(["+ev.lat+","+ev.lng+"],5)\\"><div class=\\"impact-title\\">"+icon+" "+(ev.title||ev.place||"").substring(0,60)+"</div><div class=\\"impact-tags\\">"+(impHtml||"<span class=\\"tag-neu\\">Monitoring</span>")+"</div></div>";
+  }).join("");
+}
+function toggleLayer(key,btn){
+  visible[key]=!visible[key];
+  btn.classList.toggle("on",visible[key]);
+  if(key==="lines"){if(!visible.lines)clearLines();return;}
+  layers[key].forEach(m=>{if(visible[key])m.addTo(map);else map.removeLayer(m);});
+}
+async function loadEvents(){
+  document.getElementById("geoStatus").textContent="Loading...";
+  try{
+    const r=await fetch("/api/geo-events");
+    const data=await r.json();
+    renderEvents(data);
+  }catch(e){
+    document.getElementById("geoStatus").textContent="Error fetching data";
+    console.error(e);
+  }
+}
+addHubs();addChokes();loadEvents();
+setInterval(loadEvents,300000);
+</script>"""
+    )
+    return _base("map", "Geo Monitor", content, user)
+

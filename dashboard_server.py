@@ -1444,6 +1444,15 @@ def ai_page():
     cached = (_ai_cache.get(uname) or {}).get("text", "")
     return dw.ai_page(user, mkt, macro, thb, OPENROUTER_KEY, cached)
 
+@app.route("/map")
+@login_required
+def map_page():
+    import dashboard_web as dw
+    uname = session["username"]
+    user  = _inject_active_portfolio(get_user(uname))
+    return dw.geo_page(user)
+
+
 @app.route("/ai/analyze", methods=["POST"])
 @login_required
 def ai_analyze():
@@ -1676,6 +1685,109 @@ def api_ticker():
         items.append({"sym": sym, "label": label,
                       "price": round(d["price"], 2), "chg": round(chg, 2)})
     return jsonify(items)
+
+
+@app.route("/api/geo-events")
+@login_required
+def api_geo_events():
+    import requests as req
+    result = {"conflicts": [], "earthquakes": []}
+
+    # ── Market impact mapping ─────────────────────────────────────────────────
+    KEYWORD_IMPACT = [
+        (["oil","opec","petroleum","crude","energy"],
+         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"}]),
+        (["war","military","attack","strike","missile","bomb","invasion"],
+         [{"market":"gold","direction":"up","label":"Gold ↑"},{"market":"oil","direction":"up","label":"Oil ↑"},
+          {"market":"sp500","direction":"dn","label":"S&P ↓"},{"market":"crypto","direction":"dn","label":"Crypto ↓"}]),
+        (["sanction","embargo"],
+         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"},
+          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
+        (["trade","tariff","export","import"],
+         [{"market":"sp500","direction":"dn","label":"S&P ↓"},{"market":"set","direction":"dn","label":"SET ↓"}]),
+        (["china","taiwan","xi"],
+         [{"market":"nikkei","direction":"dn","label":"Nikkei ↓"},{"market":"set","direction":"dn","label":"SET ↓"},
+          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
+        (["middle east","iran","israel","gaza","hamas","hezbollah"],
+         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"}]),
+        (["russia","ukraine"],
+         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"},
+          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
+        (["north korea","kim","nuclear"],
+         [{"market":"gold","direction":"up","label":"Gold ↑"},{"market":"nikkei","direction":"dn","label":"Nikkei ↓"}]),
+    ]
+
+    def classify_impacts(text):
+        text_lower = text.lower()
+        impacts = []
+        seen = set()
+        for keywords, imps in KEYWORD_IMPACT:
+            if any(k in text_lower for k in keywords):
+                for imp in imps:
+                    key = (imp["market"], imp["direction"])
+                    if key not in seen:
+                        seen.add(key)
+                        impacts.append(imp)
+        return impacts
+
+    # ── GDELT conflict events ─────────────────────────────────────────────────
+    try:
+        gdelt_url = (
+            "https://api.gdeltproject.org/api/v2/geo/geo?"
+            "query=war%20OR%20military%20OR%20conflict%20OR%20attack%20OR%20sanction"
+            "&mode=pointdata&maxrecords=50&timespan=24h&format=json"
+        )
+        r = req.get(gdelt_url, timeout=12)
+        if r.status_code == 200:
+            data = r.json()
+            for feat in (data.get("features") or []):
+                props = feat.get("properties", {})
+                coords = (feat.get("geometry") or {}).get("coordinates", [None, None])
+                if not coords[0]:
+                    continue
+                title = props.get("name", "Conflict event")
+                result["conflicts"].append({
+                    "lat":     float(coords[1]),
+                    "lng":     float(coords[0]),
+                    "title":   title[:120],
+                    "source":  props.get("domain", ""),
+                    "tone":    float(props.get("avgtone", 0)),
+                    "impacts": classify_impacts(title),
+                })
+    except Exception:
+        pass
+
+    # ── USGS earthquakes ──────────────────────────────────────────────────────
+    try:
+        quake_url = (
+            "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
+            "&minmagnitude=5.0&orderby=time&limit=30"
+        )
+        r = req.get(quake_url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            for feat in (data.get("features") or []):
+                props = feat.get("properties", {})
+                coords = (feat.get("geometry") or {}).get("coordinates", [None, None, None])
+                if coords[0] is None:
+                    continue
+                mag = float(props.get("mag", 0))
+                place = props.get("place", "Unknown")
+                impacts = []
+                if mag >= 6.5:
+                    impacts = [{"market":"gold","direction":"up","label":"Gold ↑"},
+                               {"market":"sp500","direction":"dn","label":"S&P ↓"}]
+                result["earthquakes"].append({
+                    "lat":     float(coords[1]),
+                    "lng":     float(coords[0]),
+                    "mag":     round(mag, 1),
+                    "place":   place[:100],
+                    "impacts": impacts,
+                })
+    except Exception:
+        pass
+
+    return jsonify(result)
 
 
 @app.route("/api/news-ai-brief")
