@@ -7241,19 +7241,19 @@ function getZoneStyle(isoCode){
 async function loadZones(){
   if(zoneLoaded && zoneGeoLayer){zoneGeoLayer.addTo(map);return;}
   try{
-    const r = await fetch("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson");
+    // Fetch from Flask backend (server-side, no CORS, zone_color pre-injected)
+    const r = await fetch("/api/zones");
     const gj = await r.json();
     zoneGeoLayer = L.geoJSON(gj,{
       style: feat=>{
-        // feat.id = ISO A3 code (e.g. "USA","CHN") in this dataset
-        const isoCode = feat.id || "";
-        return getZoneStyle(isoCode);
+        const c=(feat.properties||{}).zone_color||"#4b5563";
+        return {fillColor:c,fillOpacity:0.38,color:c,weight:0.7,opacity:0.55};
       },
       onEachFeature:(feat,layer)=>{
-        const isoCode = feat.id||"";
-        const zone = ZONE_BY_ISO[isoCode]||ZONES[ZONES.length-1];
-        const name = (feat.properties||{}).name||isoCode;
-        layer.bindTooltip("<b>"+name+"</b><br><span style=\\"color:"+zone.color+";font-weight:700\\">"+zone.label+"</span>",{sticky:true});
+        const name  = (feat.properties||{}).name  || feat.id || "";
+        const label = (feat.properties||{}).zone_label || "Neutral / Other";
+        const color = (feat.properties||{}).zone_color || "#4b5563";
+        layer.bindTooltip("<b>"+name+"</b><br><span style=\\"color:"+color+";font-weight:700\\">"+label+"</span>",{sticky:true});
       }
     });
     zoneGeoLayer.addTo(map);

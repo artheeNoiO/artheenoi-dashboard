@@ -241,6 +241,9 @@ _refreshing = threading.Event()
 _news_brief_lock  = threading.Lock()
 _news_brief_cache = {"brief": None, "updated": None}
 
+_zones_lock  = threading.Lock()
+_zones_cache: str = ""   # cached GeoJSON string with zone_color injected
+
 def _enrich_with_closes(mkt: dict, syms: list):
     """Fetch 60-day closes + 52W high/low via yfinance and merge into mkt dict."""
     try:
@@ -1687,92 +1690,159 @@ def api_ticker():
     return jsonify(items)
 
 
+@app.route("/api/zones")
+@login_required
+def api_zones():
+    """Fetch countries GeoJSON server-side (no CORS), inject zone_color, cache 24h."""
+    import requests as req, json as jsonlib
+    from flask import Response
+    global _zones_cache
+    with _zones_lock:
+        if _zones_cache:
+            return Response(_zones_cache, mimetype="application/json",
+                            headers={"Cache-Control": "max-age=3600"})
+
+    _ZONE_MAP = {
+        "west":    {"label":"Western Alliance",   "color":"#2563eb",
+                    "iso3":{"USA","CAN","GBR","IRL","FRA","DEU","ITA","ESP","PRT","NLD","BEL","LUX","AUT","CHE","DNK","NOR","SWE","FIN","ISL","POL","CZE","SVK","HUN","ROU","BGR","EST","LVA","LTU","HRV","SVN","GRC","MLT","CYP","ALB","MNE","MKD","BIH","SRB","AUS","NZL","JPN","KOR","ISR","LIE","AND","MCO","SMR"}},
+        "china":   {"label":"China & Allies",     "color":"#ef4444",
+                    "iso3":{"CHN","PRK","MMR"}},
+        "russia":  {"label":"Russia & CIS",       "color":"#991b1b",
+                    "iso3":{"RUS","BLR","KAZ","KGZ","TJK","UZB","TKM","ARM","AZE"}},
+        "asean":   {"label":"ASEAN",              "color":"#0d9488",
+                    "iso3":{"THA","VNM","IDN","MYS","PHL","SGP","KHM","LAO","BRN","TLS"}},
+        "mideast": {"label":"Middle East / OPEC", "color":"#d97706",
+                    "iso3":{"SAU","ARE","QAT","KWT","BHR","OMN","IRN","IRQ","SYR","YEM","JOR","LBN","TUR","EGY","LBY","DZA","TUN","MAR","PSE"}},
+        "sasia":   {"label":"South Asia",         "color":"#7c3aed",
+                    "iso3":{"IND","PAK","BGD","LKA","NPL","BTN","MDV","AFG"}},
+        "latam":   {"label":"Latin America",      "color":"#ea580c",
+                    "iso3":{"BRA","MEX","ARG","COL","CHL","PER","VEN","ECU","BOL","PRY","URY","GUY","SUR","CRI","PAN","CUB","DOM","HND","GTM","SLV","NIC","HTI","JAM","TTO","BRB","BHS","BLZ","GRD","LCA","VCT","KNA","ATG","DMA"}},
+        "africa":  {"label":"Africa",             "color":"#16a34a",
+                    "iso3":{"ZAF","KEN","TZA","UGA","ETH","SDN","SSD","SOM","MOZ","ZMB","ZWE","MWI","MDG","BWA","NAM","SWZ","LSO","RWA","BDI","DJI","ERI","COD","CAF","CMR","TGO","BEN","CIV","GIN","GNB","SLE","LBR","GHA","NGA","NER","MLI","BFA","MRT","SEN","GMB","CPV","STP","GNQ","GAB","COG","AGO","TCD","COM","SYC","MUS"}},
+        "other":   {"label":"Neutral / Other",    "color":"#4b5563", "iso3":set()},
+    }
+    def _get_zone(iso3):
+        for zid, zd in _ZONE_MAP.items():
+            if iso3 in zd["iso3"]:
+                return zd
+        return _ZONE_MAP["other"]
+
+    try:
+        r = req.get(
+            "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson",
+            timeout=30
+        )
+        gj = r.json()
+        for feat in gj.get("features", []):
+            iso3 = feat.get("id", "")
+            zd = _get_zone(iso3)
+            feat.setdefault("properties", {})
+            feat["properties"]["zone_color"] = zd["color"]
+            feat["properties"]["zone_label"] = zd["label"]
+        result = jsonlib.dumps(gj, separators=(",", ":"))
+        with _zones_lock:
+            _zones_cache = result
+        return Response(result, mimetype="application/json",
+                        headers={"Cache-Control": "max-age=3600"})
+    except Exception as e:
+        log.warning("zones fetch failed: %s", e)
+        return Response('{"type":"FeatureCollection","features":[]}',
+                        mimetype="application/json")
+
+
 @app.route("/api/geo-events")
 @login_required
 def api_geo_events():
     import requests as req
     result = {"conflicts": [], "earthquakes": []}
 
-    # ── Market impact mapping ─────────────────────────────────────────────────
-    KEYWORD_IMPACT = [
-        (["oil","opec","petroleum","crude","energy"],
-         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"}]),
-        (["war","military","attack","strike","missile","bomb","invasion"],
-         [{"market":"gold","direction":"up","label":"Gold ↑"},{"market":"oil","direction":"up","label":"Oil ↑"},
-          {"market":"sp500","direction":"dn","label":"S&P ↓"},{"market":"crypto","direction":"dn","label":"Crypto ↓"}]),
-        (["sanction","embargo"],
-         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"},
-          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
-        (["trade","tariff","export","import"],
-         [{"market":"sp500","direction":"dn","label":"S&P ↓"},{"market":"set","direction":"dn","label":"SET ↓"}]),
-        (["china","taiwan","xi"],
-         [{"market":"nikkei","direction":"dn","label":"Nikkei ↓"},{"market":"set","direction":"dn","label":"SET ↓"},
-          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
-        (["middle east","iran","israel","gaza","hamas","hezbollah"],
-         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"}]),
-        (["russia","ukraine"],
-         [{"market":"oil","direction":"up","label":"Oil ↑"},{"market":"gold","direction":"up","label":"Gold ↑"},
-          {"market":"sp500","direction":"dn","label":"S&P ↓"}]),
-        (["north korea","kim","nuclear"],
-         [{"market":"gold","direction":"up","label":"Gold ↑"},{"market":"nikkei","direction":"dn","label":"Nikkei ↓"}]),
+    # ── Hardcoded ongoing major conflicts (always present, clickable) ─────────
+    ONGOING = [
+        {"lat":48.5,  "lng":32.0,  "title":"Russia–Ukraine War",
+         "source":"Ongoing", "tone":-10,
+         "impacts":[{"market":"oil","direction":"up","label":"Oil ↑"},
+                    {"market":"gold","direction":"up","label":"Gold ↑"},
+                    {"market":"sp500","direction":"dn","label":"S&P ↓"},
+                    {"market":"crypto","direction":"dn","label":"Crypto ↓"}]},
+        {"lat":31.5,  "lng":34.5,  "title":"Gaza–Israel Conflict",
+         "source":"Ongoing", "tone":-10,
+         "impacts":[{"market":"oil","direction":"up","label":"Oil ↑"},
+                    {"market":"gold","direction":"up","label":"Gold ↑"}]},
+        {"lat":15.5,  "lng":32.5,  "title":"Sudan Civil War",
+         "source":"Ongoing", "tone":-9,
+         "impacts":[{"market":"gold","direction":"up","label":"Gold ↑"}]},
+        {"lat":15.0,  "lng":44.5,  "title":"Yemen Conflict (Houthis – Red Sea)",
+         "source":"Ongoing", "tone":-9,
+         "impacts":[{"market":"oil","direction":"up","label":"Oil ↑"},
+                    {"market":"gold","direction":"up","label":"Gold ↑"},
+                    {"market":"sp500","direction":"dn","label":"S&P ↓"}]},
+        {"lat":35.0,  "lng":38.0,  "title":"Syria Fragmentation",
+         "source":"Ongoing", "tone":-7,
+         "impacts":[{"market":"oil","direction":"up","label":"Oil ↑"}]},
+        {"lat":4.5,   "lng":20.0,  "title":"Central Africa Instability",
+         "source":"Ongoing", "tone":-7,
+         "impacts":[{"market":"gold","direction":"up","label":"Gold ↑"}]},
+        {"lat":19.0,  "lng":96.5,  "title":"Myanmar Civil Conflict",
+         "source":"Ongoing", "tone":-8,
+         "impacts":[{"market":"set","direction":"dn","label":"SET ↓"},
+                    {"market":"nikkei","direction":"dn","label":"Nikkei ↓"}]},
+        {"lat":40.0,  "lng":44.5,  "title":"Armenia–Azerbaijan Tension",
+         "source":"Ongoing", "tone":-6,
+         "impacts":[{"market":"oil","direction":"up","label":"Oil ↑"}]},
+        {"lat":25.0,  "lng":122.5, "title":"Taiwan Strait Tension",
+         "source":"Ongoing", "tone":-8,
+         "impacts":[{"market":"nikkei","direction":"dn","label":"Nikkei ↓"},
+                    {"market":"set","direction":"dn","label":"SET ↓"},
+                    {"market":"sp500","direction":"dn","label":"S&P ↓"},
+                    {"market":"crypto","direction":"dn","label":"Crypto ↓"}]},
+        {"lat":37.5,  "lng":127.5, "title":"North Korea Provocation Risk",
+         "source":"Ongoing", "tone":-6,
+         "impacts":[{"market":"gold","direction":"up","label":"Gold ↑"},
+                    {"market":"nikkei","direction":"dn","label":"Nikkei ↓"}]},
     ]
+    result["conflicts"] = list(ONGOING)
 
-    def classify_impacts(text):
-        text_lower = text.lower()
-        impacts = []
-        seen = set()
-        for keywords, imps in KEYWORD_IMPACT:
-            if any(k in text_lower for k in keywords):
-                for imp in imps:
-                    key = (imp["market"], imp["direction"])
-                    if key not in seen:
-                        seen.add(key)
-                        impacts.append(imp)
-        return impacts
-
-    # ── GDELT conflict events ─────────────────────────────────────────────────
+    # ── GDELT supplement (optional, skip if unavailable) ─────────────────────
     try:
         gdelt_url = (
-            "https://api.gdeltproject.org/api/v2/geo/geo?"
-            "query=war%20OR%20military%20OR%20conflict%20OR%20attack%20OR%20sanction"
-            "&mode=pointdata&maxrecords=50&timespan=24h&format=json"
+            "https://api.gdeltproject.org/api/v2/doc/doc?"
+            "query=war+conflict+attack&mode=artlist&maxrecords=20"
+            "&timespan=24h&format=json"
         )
-        r = req.get(gdelt_url, timeout=12)
+        r = req.get(gdelt_url, timeout=8)
         if r.status_code == 200:
             data = r.json()
-            for feat in (data.get("features") or []):
-                props = feat.get("properties", {})
-                coords = (feat.get("geometry") or {}).get("coordinates", [None, None])
-                if not coords[0]:
+            for art in (data.get("articles") or []):
+                lat = art.get("socialimage_lat") or art.get("lat")
+                lng = art.get("socialimage_lon") or art.get("lon")
+                if not lat or not lng:
                     continue
-                title = props.get("name", "Conflict event")
+                title = art.get("title", "News event")
                 result["conflicts"].append({
-                    "lat":     float(coords[1]),
-                    "lng":     float(coords[0]),
-                    "title":   title[:120],
-                    "source":  props.get("domain", ""),
-                    "tone":    float(props.get("avgtone", 0)),
-                    "impacts": classify_impacts(title),
+                    "lat":    float(lat),
+                    "lng":    float(lng),
+                    "title":  title[:120],
+                    "source": art.get("domain",""),
+                    "tone":   float(art.get("tone", 0)),
+                    "impacts": [],
                 })
     except Exception:
         pass
 
     # ── USGS earthquakes ──────────────────────────────────────────────────────
     try:
-        quake_url = (
+        r = req.get(
             "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
-            "&minmagnitude=5.0&orderby=time&limit=30"
+            "&minmagnitude=5.0&orderby=time&limit=30",
+            timeout=10
         )
-        r = req.get(quake_url, timeout=10)
         if r.status_code == 200:
-            data = r.json()
-            for feat in (data.get("features") or []):
-                props = feat.get("properties", {})
-                coords = (feat.get("geometry") or {}).get("coordinates", [None, None, None])
+            for feat in (r.json().get("features") or []):
+                props  = feat.get("properties", {})
+                coords = (feat.get("geometry") or {}).get("coordinates", [None, None])
                 if coords[0] is None:
                     continue
                 mag = float(props.get("mag", 0))
-                place = props.get("place", "Unknown")
                 impacts = []
                 if mag >= 6.5:
                     impacts = [{"market":"gold","direction":"up","label":"Gold ↑"},
@@ -1781,7 +1851,7 @@ def api_geo_events():
                     "lat":     float(coords[1]),
                     "lng":     float(coords[0]),
                     "mag":     round(mag, 1),
-                    "place":   place[:100],
+                    "place":   props.get("place","Unknown")[:100],
                     "impacts": impacts,
                 })
     except Exception:
