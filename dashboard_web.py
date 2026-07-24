@@ -7045,8 +7045,8 @@ p{color:#5a5a68;font-size:14px;margin-bottom:4px}
 
 def geo_page(user: dict) -> str:
     content = (
-        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'
-        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.min.js"></script>'
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"/>'
+        '<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>'
         """
 <style>
 .main{overflow:hidden!important}
@@ -7202,12 +7202,23 @@ const CHOKES = [
 ];
 
 // ── Map init ──────────────────────────────────────────────────────────────────
-const map = L.map("geo-map",{center:[20,10],zoom:2,preferCanvas:true});
+// Set explicit pixel height BEFORE Leaflet reads container dimensions
+(function(){
+  const wrap=document.getElementById("geo-wrap");
+  const tb=document.querySelector(".topbar");
+  if(wrap){wrap.style.height=Math.max(400,window.innerHeight-(tb?tb.offsetHeight:60))+"px";}
+})();
+const map=L.map("geo-map",{center:[20,10],zoom:2,preferCanvas:true});
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
-  attribution:"© CARTO",subdomains:"abcd",maxZoom:19
+  attribution:"© CARTO",subdomains:"abcd",maxZoom:19,crossOrigin:true
 }).addTo(map);
-setTimeout(()=>map.invalidateSize(),250);
-window.addEventListener("resize",()=>map.invalidateSize());
+setTimeout(()=>map.invalidateSize(),300);
+window.addEventListener("resize",()=>{
+  const wrap=document.getElementById("geo-wrap");
+  const tb=document.querySelector(".topbar");
+  if(wrap)wrap.style.height=Math.max(400,window.innerHeight-(tb?tb.offsetHeight:60))+"px";
+  map.invalidateSize();
+});
 
 const layers={conflict:[],quake:[],choke:[],hubs:[],lines:[],supply:[]};
 const visible={conflict:true,quake:true,choke:true,hubs:true,lines:true,supply:true,zones:true};
