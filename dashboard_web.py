@@ -7335,11 +7335,14 @@ function showLines(ev,latlng){
   clearLines();if(!visible.lines)return;
   (ev.impacts||[]).forEach(imp=>{
     const hub=HUBS[imp.market];if(!hub)return;
-    const clr=imp.direction==="up"?"#4caf50":"#ef5350";
+    const clr=imp.direction==="up"?"#4ade80":"#f87171";
+    // glow: draw thick transparent line + thin bright line on top
+    const glow=L.polyline([[latlng.lat,latlng.lng],[hub.lat,hub.lng]],
+      {color:clr,weight:8,opacity:.18,dashArray:null}).addTo(map);
     const ln=L.polyline([[latlng.lat,latlng.lng],[hub.lat,hub.lng]],
-      {color:clr,weight:1.5,opacity:.8,dashArray:"8 6"}).addTo(map);
-    ln.bindTooltip("<b>"+hub.label+"</b> "+imp.label,{sticky:true});
-    activeLines.push(ln);layers.lines.push(ln);
+      {color:clr,weight:2.5,opacity:.95,dashArray:"10 5"}).addTo(map);
+    ln.bindTooltip("<b>"+hub.label+"</b> — "+imp.label,{sticky:true,direction:"top"});
+    activeLines.push(glow,ln);layers.lines.push(glow,ln);
   });
 }
 
