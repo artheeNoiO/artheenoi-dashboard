@@ -7121,27 +7121,28 @@ def geo_page(user: dict) -> str:
 </div>
 <script>
 // ── Power Zones ──────────────────────────────────────────────────────────────
+// iso3 = ISO 3166-1 alpha-3, matches feat.id in datasets/geo-countries GeoJSON
 const ZONES = [
   {id:"west",    label:"Western Alliance",   color:"#2563eb",
-   iso2:["US","CA","GB","IE","FR","DE","IT","ES","PT","NL","BE","LU","AT","CH","DK","NO","SE","FI","IS","PL","CZ","SK","HU","RO","BG","EE","LV","LT","HR","SI","GR","MT","CY","AL","ME","MK","BA","RS","AU","NZ","JP","KR","IL","LI","AD","MC","SM"]},
+   iso3:["USA","CAN","GBR","IRL","FRA","DEU","ITA","ESP","PRT","NLD","BEL","LUX","AUT","CHE","DNK","NOR","SWE","FIN","ISL","POL","CZE","SVK","HUN","ROU","BGR","EST","LVA","LTU","HRV","SVN","GRC","MLT","CYP","ALB","MNE","MKD","BIH","SRB","AUS","NZL","JPN","KOR","ISR","LIE","AND","MCO","SMR"]},
   {id:"china",   label:"China & Allies",     color:"#ef4444",
-   iso2:["CN","KP","MM"]},
+   iso3:["CHN","PRK","MMR"]},
   {id:"russia",  label:"Russia & CIS",       color:"#991b1b",
-   iso2:["RU","BY","KZ","KG","TJ","UZ","TM","AM","AZ"]},
+   iso3:["RUS","BLR","KAZ","KGZ","TJK","UZB","TKM","ARM","AZE"]},
   {id:"asean",   label:"ASEAN",              color:"#0d9488",
-   iso2:["TH","VN","ID","MY","PH","SG","KH","LA","BN","TL"]},
+   iso3:["THA","VNM","IDN","MYS","PHL","SGP","KHM","LAO","BRN","TLS"]},
   {id:"mideast", label:"Middle East / OPEC", color:"#d97706",
-   iso2:["SA","AE","QA","KW","BH","OM","IR","IQ","SY","YE","JO","LB","TR","EG","LY","DZ","TN","MA","PS"]},
+   iso3:["SAU","ARE","QAT","KWT","BHR","OMN","IRN","IRQ","SYR","YEM","JOR","LBN","TUR","EGY","LBY","DZA","TUN","MAR","PSE"]},
   {id:"sasia",   label:"South Asia",         color:"#7c3aed",
-   iso2:["IN","PK","BD","LK","NP","BT","MV","AF"]},
+   iso3:["IND","PAK","BGD","LKA","NPL","BTN","MDV","AFG"]},
   {id:"latam",   label:"Latin America",      color:"#ea580c",
-   iso2:["BR","MX","AR","CO","CL","PE","VE","EC","BO","PY","UY","GY","SR","CR","PA","CU","DO","HN","GT","SV","NI","HT","JM","TT","BB","BS","BZ","GD","LC","VC","KN","AG","DM","GF"]},
+   iso3:["BRA","MEX","ARG","COL","CHL","PER","VEN","ECU","BOL","PRY","URY","GUY","SUR","CRI","PAN","CUB","DOM","HND","GTM","SLV","NIC","HTI","JAM","TTO","BRB","BHS","BLZ","GRD","LCA","VCT","KNA","ATG","DMA","GUF"]},
   {id:"africa",  label:"Africa",             color:"#16a34a",
-   iso2:["ZA","KE","TZ","UG","ET","SD","SS","SO","MZ","ZM","ZW","MW","MG","BW","NA","SZ","LS","RW","BI","DJ","ER","CD","CF","CM","TG","BJ","CI","GN","GW","SL","LR","GH","NG","NE","ML","BF","MR","SN","GM","CV","ST","GQ","GA","CG","AO","TD","KM","SC","MU"]},
-  {id:"other",   label:"Neutral / Other",    color:"#374151", iso2:[]},
+   iso3:["ZAF","KEN","TZA","UGA","ETH","SDN","SSD","SOM","MOZ","ZMB","ZWE","MWI","MDG","BWA","NAM","SWZ","LSO","RWA","BDI","DJI","ERI","COD","CAF","CMR","TGO","BEN","CIV","GIN","GNB","SLE","LBR","GHA","NGA","NER","MLI","BFA","MRT","SEN","GMB","CPV","STP","GNQ","GAB","COG","AGO","TCD","COM","SYC","MUS"]},
+  {id:"other",   label:"Neutral / Other",    color:"#4b5563", iso3:[]},
 ];
 const ZONE_BY_ISO = {};
-ZONES.forEach(z=>z.iso2.forEach(c=>ZONE_BY_ISO[c]=z));
+ZONES.forEach(z=>(z.iso3||[]).forEach(c=>ZONE_BY_ISO[c]=z));
 
 // ── Supply Chain ─────────────────────────────────────────────────────────────
 const SUPPLY = [
@@ -7227,14 +7228,14 @@ let zoneGeoLayer=null;
 let zoneLoaded=false;
 
 // ── Power Zone layer ──────────────────────────────────────────────────────────
-function getZoneStyle(iso2){
-  const zone = ZONE_BY_ISO[iso2] || ZONES[ZONES.length-1];
+function getZoneStyle(isoCode){
+  const zone = ZONE_BY_ISO[isoCode] || ZONES[ZONES.length-1];
   return {
     fillColor: zone.color,
-    fillOpacity: 0.22,
+    fillOpacity: 0.38,
     color: zone.color,
-    weight: 0.6,
-    opacity: 0.5,
+    weight: 0.7,
+    opacity: 0.6,
   };
 }
 async function loadZones(){
@@ -7244,13 +7245,14 @@ async function loadZones(){
     const gj = await r.json();
     zoneGeoLayer = L.geoJSON(gj,{
       style: feat=>{
-        const iso2 = (feat.properties||{}).ISO_A2 || "";
-        return getZoneStyle(iso2);
+        // feat.id = ISO A3 code (e.g. "USA","CHN") in this dataset
+        const isoCode = feat.id || "";
+        return getZoneStyle(isoCode);
       },
       onEachFeature:(feat,layer)=>{
-        const iso2 = (feat.properties||{}).ISO_A2||"";
-        const zone = ZONE_BY_ISO[iso2]||ZONES[ZONES.length-1];
-        const name = (feat.properties||{}).ADMIN||(feat.properties||{}).NAME||iso2;
+        const isoCode = feat.id||"";
+        const zone = ZONE_BY_ISO[isoCode]||ZONES[ZONES.length-1];
+        const name = (feat.properties||{}).name||isoCode;
         layer.bindTooltip("<b>"+name+"</b><br><span style=\\"color:"+zone.color+";font-weight:700\\">"+zone.label+"</span>",{sticky:true});
       }
     });
