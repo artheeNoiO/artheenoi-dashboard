@@ -7049,7 +7049,9 @@ def geo_page(user: dict) -> str:
         '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.min.js"></script>'
         """
 <style>
-#geo-wrap{position:relative;width:100%;height:calc(100vh - 110px);border-radius:12px;overflow:hidden;border:1px solid #2a2a2a}
+.main{overflow:hidden!important}
+.content{padding:0!important;overflow:hidden!important}
+#geo-wrap{position:relative;width:100%;height:100%;border-radius:0;overflow:hidden;border:none}
 #geo-map{width:100%;height:100%}
 .geo-layers{position:absolute;top:12px;left:12px;z-index:900;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 300px)}
 .layer-btn{background:#111;border:1px solid #333;color:#aaa;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;transition:.15s;font-family:inherit}
@@ -7200,10 +7202,12 @@ const CHOKES = [
 ];
 
 // ── Map init ──────────────────────────────────────────────────────────────────
-const map = L.map("geo-map",{center:[20,10],zoom:2});
+const map = L.map("geo-map",{center:[20,10],zoom:2,preferCanvas:true});
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
   attribution:"© CARTO",subdomains:"abcd",maxZoom:19
 }).addTo(map);
+setTimeout(()=>map.invalidateSize(),250);
+window.addEventListener("resize",()=>map.invalidateSize());
 
 const layers={conflict:[],quake:[],choke:[],hubs:[],lines:[],supply:[]};
 const visible={conflict:true,quake:true,choke:true,hubs:true,lines:true,supply:true,zones:true};
